@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.chrome_profile/
+.preview_profile/
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+coverage/
+.cache/
+# Local credentials and signing material must never be committed.
+credentials.json
+cozy-fi-config.json
+*.pem
+*.key
+*.p12
+*.pfx
+# Obsolete pre-Cozy-Fi stylesheet retained locally for reference.
+styles.css
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+# Generated on the matching host by npm run icon / npm run build:librespot.
+app-icon.icns
+librespot
+librespot.exe

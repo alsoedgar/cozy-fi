@@ -1,0 +1,51 @@
+diff --git a/src/main.rs b/src/main.rs
+index fb85803..2ed26b7 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -172,36 +172,8 @@ fn get_version_string() -> String {
+     )
+ }
+
+-/// Spotify's Desktop app uses these. Some of these are only available when requested with Spotify's client IDs.
+-static OAUTH_SCOPES: &[&str] = &[
+-    //const OAUTH_SCOPES: Vec<&str> = vec![
+-    "app-remote-control",
+-    "playlist-modify",
+-    "playlist-modify-private",
+-    "playlist-modify-public",
+-    "playlist-read",
+-    "playlist-read-collaborative",
+-    "playlist-read-private",
+-    "streaming",
+-    "ugc-image-upload",
+-    "user-follow-modify",
+-    "user-follow-read",
+-    "user-library-modify",
+-    "user-library-read",
+-    "user-modify",
+-    "user-modify-playback-state",
+-    "user-modify-private",
+-    "user-personalized",
+-    "user-read-birthdate",
+-    "user-read-currently-playing",
+-    "user-read-email",
+-    "user-read-play-history",
+-    "user-read-playback-position",
+-    "user-read-playback-state",
+-    "user-read-private",
+-    "user-read-recently-played",
+-    "user-top-read",
+-];
++// Cozy-Fi only needs the permission required to create its local playback session.
++static OAUTH_SCOPES: &[&str] = &["streaming"];
+
+ struct Setup {
+     format: AudioFormat,
+@@ -1955,7 +1927,6 @@ async fn main() {
+             &format!("http://127.0.0.1{port_str}/login"),
+             OAUTH_SCOPES.to_vec(),
+         )
+-        .open_in_browser()
+         .build()
+         .unwrap_or_else(|e| {
+             error!("Failed to create OAuth client: {e}");

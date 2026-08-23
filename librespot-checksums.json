@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "librespotVersion": "0.8.0",
+  "sourceCommit": "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d",
+  "targets": {
+    "win32-x64": "C232D47F9F2EC029F5884062194FB6CD4652E282CB08FE3155FEA454690F10AF"
+  }
+}

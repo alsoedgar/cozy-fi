@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
+  <title>Cozy-Fi Side Player</title>
+  <link rel="stylesheet" href="mini-player.css">
+</head>
+<body class="is-loading">
+  <main class="mini-window" id="mini-window" aria-busy="true">
+    <header class="mini-titlebar" id="mini-titlebar" title="Double-click to return to the full app">
+      <div class="mini-brand" aria-label="Cozy-Fi Side Player">
+        <img src="logo.png" alt="">
+        <span>COZY-FI</span>
+      </div>
+      <div class="mini-window-actions">
+        <button type="button" id="mini-open-main" aria-label="Open the full Cozy-Fi app" title="Open full app">FULL</button>
+        <button type="button" id="mini-pin" aria-label="Keep side player on top" aria-pressed="true" title="Keep on top">PIN</button>
+        <button type="button" id="mini-hide" aria-label="Minimize the side player" title="Minimize side player">HIDE</button>
+      </div>
+    </header>
+
+    <section class="mini-player-panel" aria-labelledby="mini-track-title">
+      <div class="mini-status-row">
+        <span class="mini-eyebrow">SIDE A · NOW BREWING</span>
+        <span class="mini-capability" id="mini-capability">CHECKING</span>
+      </div>
+
+      <div class="mini-art-frame" id="mini-art-frame">
+        <div class="mini-art-skeleton ghost" aria-hidden="true"></div>
+        <img id="mini-cover" alt="" referrerpolicy="no-referrer" decoding="async" draggable="false" hidden>
+        <div class="mini-cover-fallback" id="mini-cover-fallback" hidden aria-hidden="true">
+          <div class="mini-record"><span>CF</span></div>
+          <div class="mini-steam steam-one"></div>
+          <div class="mini-steam steam-two"></div>
+        </div>
+        <span class="mini-art-label" aria-hidden="true">COZY MIX</span>
+      </div>
+
+      <div class="mini-track-area" aria-live="polite">
+        <div class="mini-copy-skeleton" aria-hidden="true">
+          <span class="ghost"></span>
+          <span class="ghost"></span>
+        </div>
+        <div class="mini-track-copy">
+          <h1 id="mini-track-title">Awaiting Track</h1>
+          <p id="mini-track-artist">Connect Spotify in the full app to begin.</p>
+        </div>
+      </div>
+
+      <div class="mini-progress-area">
+        <input type="range" id="mini-progress" min="0" max="0" value="0" step="1000" aria-label="Playback position" disabled>
+        <div class="mini-time-row" aria-hidden="true">
+          <span id="mini-current-time">0:00</span>
+          <span id="mini-total-time">0:00</span>
+        </div>
+      </div>
+
+      <div class="mini-controls" aria-label="Playback controls">
+        <button type="button" class="mini-control-button" id="mini-previous" aria-label="Previous track">PREV</button>
+        <button type="button" class="mini-control-button mini-play-button" id="mini-play" aria-label="Play">PLAY</button>
+        <button type="button" class="mini-control-button" id="mini-next" aria-label="Next track">NEXT</button>
+      </div>
+
+      <div class="mini-footer-row">
+        <span class="mini-deck-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <p id="mini-message" role="status" aria-live="polite">Warming up the player…</p>
+      </div>
+    </section>
+    <button type="button" class="resize-corner" id="mini-resize" aria-label="Resize side player" title="Drag to resize. Arrow keys resize when focused."></button>
+  </main>
+  <script src="js/mini-player.js"></script>
+</body>
+</html>

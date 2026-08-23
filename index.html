@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
+  <title>Cozy-Fi</title>
+  <link rel="stylesheet" href="cozy-fi.css">
+</head>
+<body>
+  <!-- Sidebar Toggle Button (floating menu button) -->
+  <button class="sidebar-toggle-btn" id="sidebar-toggle" aria-label="Toggle Navigation" aria-controls="app-sidebar" aria-expanded="false">
+    MENU
+  </button>
+
+  <div class="app-container">
+    <!-- Left Navigation Sidebar (Hidden by default, expandable) -->
+    <aside class="sidebar" id="app-sidebar" aria-hidden="true">
+      <div>
+        <div class="sidebar-logo" style="display: flex; align-items: center; gap: 10px;">
+          <img src="logo.png" alt="" style="width: 32px; height: 32px; border-radius: 4px; object-fit: cover;">
+          Cozy-Fi
+        </div>
+        <nav class="nav-links">
+          <a href="#" class="nav-item active" data-view="home">
+            Home
+          </a>
+          <a href="#" class="nav-item" data-view="search">
+            Search
+          </a>
+          <a href="#" class="nav-item" data-view="library">
+            Library
+          </a>
+          <a href="#" class="nav-item" data-view="settings">
+            Settings
+          </a>
+          <button type="button" class="side-player-nav-button" id="side-player-toggle" aria-pressed="false">
+            <span>Side Player</span>
+            <span class="nav-action-state" id="side-player-toggle-state">SHOW</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Listener Info Card -->
+      <div class="user-card">
+        <div class="user-avatar">U</div>
+        <div class="user-info">
+          <div class="user-name">Listener One</div>
+          <div class="user-tag" id="cozy-mode-tag">Coffee Mode</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Dynamic Section -->
+    <div class="app-main-shell">
+
+      <header class="header-bar" id="top-header-bar" style="display: none;"></header>
+
+      <!-- VIEWS -->
+
+      <!-- 1. HOME VIEW -->
+      <main class="main-view active" id="view-home">
+        <div class="welcome-header">
+          <h1 id="welcome-greeting">Good Morning.</h1>
+          <p>Ready for your coffee break?</p>
+        </div>
+
+        <div class="home-summary-grid" style="display: block;">
+          <div class="daily-brew-card retro-border" style="width: 100%;">
+            <div id="daily-brew-cover-container" class="daily-brew-cover-container"></div>
+            <div class="daily-brew-info">
+              <div>
+                <div class="daily-brew-tag" id="daily-brew-tag">NOW PLAYING</div>
+                <div class="daily-brew-title" id="daily-brew-title">Awaiting Track</div>
+                <div class="daily-brew-desc" id="daily-brew-desc">Connect Spotify in Settings and select a song to begin.</div>
+              </div>
+              <div class="daily-brew-controls">
+                <button class="retro-button filled" id="daily-brew-play-btn">LISTEN</button>
+                <button class="retro-button" id="daily-brew-like-btn">LIKE</button>
+                <button class="retro-button" id="daily-brew-open-btn" style="display:none;">SPOTIFY</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 2. LIBRARY VIEW -->
+      <main class="main-view" id="view-library">
+        <div class="library-header">
+          <h1>Your Library</h1>
+          <div class="library-tags" role="tablist" aria-label="Library category">
+            <button class="library-tag active" data-type="all" role="tab" aria-selected="true">Playlists</button>
+            <button class="library-tag" data-type="albums" role="tab" aria-selected="false">Albums</button>
+            <button class="library-tag" data-type="artists" role="tab" aria-selected="false">Artists</button>
+          </div>
+        </div>
+
+        <div class="library-content-grid">
+          <!-- Liked Songs Large Panel -->
+          <div class="liked-songs-card retro-border">
+            <div class="liked-header-row">
+              <div>
+                <div class="liked-title">Liked Songs</div>
+                <div class="liked-meta">342 songs • Updated 2 hours ago</div>
+              </div>
+              <button class="retro-button filled" id="liked-play-all-btn" style="border-radius: 50%; width: 50px; height: 50px; justify-content: center;">PLAY</button>
+            </div>
+            <div class="liked-tracks-list" id="liked-tracks-container">
+              <!-- Dynamically populated -->
+            </div>
+            <nav class="pagination-controls" id="liked-tracks-pagination" aria-label="Track pages" hidden></nav>
+          </div>
+
+          <!-- Side Playlists Grid -->
+          <div class="library-side-column">
+            <div class="library-grid-side" id="library-playlists-grid">
+              <!-- Dynamically populated -->
+              <div class="new-playlist-card" id="create-playlist-btn" role="button" tabindex="0">
+                <span>+</span>
+                <div>New Playlist</div>
+              </div>
+            </div>
+            <nav class="pagination-controls" id="library-grid-pagination" aria-label="Library pages" hidden></nav>
+          </div>
+        </div>
+
+
+      </main>
+
+      <!-- 3. SEARCH VIEW -->
+      <main class="main-view" id="view-search">
+        <div class="search-view-container">
+          <h1 class="search-large-title">What are we feeling today?</h1>
+
+          <div class="search-bar-large">
+            <label for="main-search-input" class="visually-hidden">Search Spotify tracks</label>
+            <input type="text" placeholder="Type something to start searching..." id="main-search-input" autocomplete="off">
+          </div>
+
+          <div class="search-sub-title" id="search-sub-title">Recommended</div>
+
+          <div class="mood-grid" id="search-recommendations-grid">
+            <!-- Dynamically populated recommendations or placeholders -->
+          </div>
+
+          <div id="search-placeholder" style="display: none;"></div>
+
+          <div class="search-results-list" id="search-results-container" style="display: none;">
+            <!-- Dynamically populated search tracks -->
+          </div>
+          <nav class="pagination-controls" id="search-pagination" aria-label="Search result pages" hidden></nav>
+        </div>
+      </main>
+
+      <!-- 4. PLAYER VIEW -->
+      <main class="main-view" id="view-player">
+        <div class="player-view-container">
+          <div class="player-large-art-container" id="player-view-art-container"></div>
+          <h2 class="player-large-title" id="player-view-title">Track Title</h2>
+          <div class="player-large-artist" id="player-view-artist">Artist Name • Album</div>
+        </div>
+      </main>
+
+      <!-- 5. SETTINGS VIEW -->
+      <main class="main-view" id="view-settings">
+        <h1 style="font-family: 'Comfortaa', cursive; font-size: var(--font-h1); margin-bottom: 8px;">Settings</h1>
+        <p style="color: var(--text-secondary); margin-bottom: 24px;">Customize your listening environment to match your mood.</p>
+
+        <div class="settings-grid">
+          <!-- Color Themes -->
+          <div class="settings-card retro-border">
+            <div class="settings-card-title">Color Themes</div>
+            <div class="settings-card-subtitle">Choose a palette that feels like home.</div>
+            <div class="theme-options" role="radiogroup" aria-label="Color theme">
+              <div class="theme-option-box active" data-theme="morning-lo-fi">
+                <div class="theme-name">Morning Lo-Fi</div>
+                <div class="theme-swatches">
+                  <div class="swatch" style="background-color: #f7f0e3;"></div>
+                  <div class="swatch" style="background-color: #ebd9c5;"></div>
+                  <div class="swatch" style="background-color: #c08a6e;"></div>
+                </div>
+              </div>
+              <div class="theme-option-box" data-theme="soft-sunset">
+                <div class="theme-name">Soft Sunset</div>
+                <div class="theme-swatches">
+                  <div class="swatch" style="background-color: #f4eae1;"></div>
+                  <div class="swatch" style="background-color: #f2d1c9;"></div>
+                  <div class="swatch" style="background-color: #dca396;"></div>
+                </div>
+              </div>
+              <div class="theme-option-box" data-theme="custom">
+                <div class="theme-name">Custom</div>
+                <div class="theme-swatches" aria-hidden="true">
+                  <div class="swatch" id="custom-swatch-primary" style="background-color: #f7f0e3;"></div>
+                  <div class="swatch" id="custom-swatch-card" style="background-color: #ebd9c5;"></div>
+                  <div class="swatch" id="custom-swatch-accent" style="background-color: #c08a6e;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="custom-theme-editor" id="custom-theme-editor" hidden>
+              <div class="custom-theme-toolbar">
+                <label class="theme-field theme-name-field" for="custom-theme-name">
+                  <span>Palette name</span>
+                  <input type="text" id="custom-theme-name" maxlength="32" value="My Cozy Palette" autocomplete="off">
+                </label>
+                <label class="theme-field" for="saved-theme-select">
+                  <span>Saved palettes</span>
+                  <select id="saved-theme-select">
+                    <option value="">New palette</option>
+                  </select>
+                </label>
+              </div>
+              <div class="custom-color-grid">
+                <label class="color-field" for="custom-bg-primary"><span>Background</span><input type="color" id="custom-bg-primary" data-color-key="bgPrimary" value="#f7f0e3"><output>#F7F0E3</output></label>
+                <label class="color-field" for="custom-bg-secondary"><span>Surface</span><input type="color" id="custom-bg-secondary" data-color-key="bgSecondary" value="#fdfaf3"><output>#FDFAF3</output></label>
+                <label class="color-field" for="custom-bg-card"><span>Cards</span><input type="color" id="custom-bg-card" data-color-key="bgCard" value="#ebd9c5"><output>#EBD9C5</output></label>
+                <label class="color-field" for="custom-text-primary"><span>Text</span><input type="color" id="custom-text-primary" data-color-key="textPrimary" value="#3c2f2f"><output>#3C2F2F</output></label>
+                <label class="color-field" for="custom-text-secondary"><span>Muted text</span><input type="color" id="custom-text-secondary" data-color-key="textSecondary" value="#705e54"><output>#705E54</output></label>
+                <label class="color-field" for="custom-accent-color"><span>Accent</span><input type="color" id="custom-accent-color" data-color-key="accentColor" value="#c08a6e"><output>#C08A6E</output></label>
+                <label class="color-field" for="custom-border-color"><span>Outline</span><input type="color" id="custom-border-color" data-color-key="borderColor" value="#3c2f2f"><output>#3C2F2F</output></label>
+              </div>
+              <div class="custom-theme-actions">
+                <button class="retro-button" id="new-custom-theme-btn" type="button">NEW</button>
+                <button class="retro-button" id="delete-custom-theme-btn" type="button" disabled>DELETE</button>
+                <span class="theme-feedback" id="theme-feedback" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+            <button class="retro-button filled" id="save-theme-btn" style="align-self: flex-start;">SAVE PALETTE</button>
+          </div>
+
+          <!-- Typography Size -->
+          <div class="settings-card retro-border">
+            <div class="settings-card-title">Typography Size</div>
+            <div class="settings-card-subtitle">Adjust the readability for your screen.</div>
+            <div class="typography-options" role="radiogroup" aria-label="Typography size">
+              <div class="typo-option-row active" data-size="standard">
+                <span>Standard</span>
+                <div class="checkbox-custom checked"></div>
+              </div>
+              <div class="typo-option-row" data-size="enlarged">
+                <span>Enlarged</span>
+                <div class="checkbox-custom"></div>
+              </div>
+            </div>
+            <div style="font-family: 'Space Mono', monospace; font-size: var(--font-xs); color: var(--text-secondary); margin-top: 10px;">
+              System optimized at 100%
+            </div>
+          </div>
+        </div>
+
+        <!-- Activity Alerts -->
+        <div class="alert-row retro-border" style="margin-bottom: 24px;">
+          <div class="alert-info">
+            <div class="alert-title" id="activity-alert-title">Friends Activity Alerts</div>
+            <div class="alert-desc" id="activity-alert-desc">Unavailable: Spotify does not expose friends activity to this app.</div>
+          </div>
+          <label class="switch-toggle" aria-labelledby="activity-alert-title" aria-describedby="activity-alert-desc">
+            <input type="checkbox" id="activity-alert-toggle" disabled>
+            <span class="slider-toggle"></span>
+          </label>
+        </div>
+
+        <div class="playback-mode-card retro-border">
+          <div class="playback-mode-copy">
+            <div class="alert-title">Playback Mode</div>
+            <div class="alert-desc" id="playback-mode-status">Auto checks whether standalone playback is available. Spotify no longer exposes subscription tier to Development Mode apps.</div>
+          </div>
+          <div class="playback-mode-controls">
+            <label class="visually-hidden" for="playback-mode-select">Playback mode</label>
+            <select id="playback-mode-select">
+              <option value="auto">Auto (recommended)</option>
+              <option value="standalone">Cozy-Fi standalone (Premium)</option>
+              <option value="external">Spotify app / browser</option>
+            </select>
+            <span class="capability-badge" id="playback-capability-badge">CHECKING</span>
+          </div>
+        </div>
+
+        <!-- Spotify Developer Connection -->
+        <div class="spotify-connect-card retro-border">
+          <div class="spotify-avatar-box" id="spotify-avatar-box">
+            <span>LINK</span>
+          </div>
+          <div class="spotify-details">
+            <div class="spotify-details-name" id="spotify-user-name">Link Spotify API</div>
+            <div class="spotify-details-status" id="spotify-connection-status">Not connected. Add your Spotify Developer Client ID to begin.</div>
+            <div class="spotify-details-tags" id="spotify-credentials-form">
+              <label for="spotify-client-id" class="visually-hidden">Spotify Client ID</label>
+              <input type="text" placeholder="Spotify Client ID" id="spotify-client-id" autocomplete="off" spellcheck="false" style="padding: 6px; border: 1.5px solid var(--border-color); border-radius: 2px;">
+              <span style="font-size: 0.68rem; color: var(--text-secondary);">Secure PKCE sign-in. Premium and an allowlisted developer account are required.</span>
+            </div>
+          </div>
+          <button class="retro-button filled" id="spotify-connect-btn">CONNECT</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Bottom Player Controller -->
+  <footer class="player-bar">
+    <div class="player-track-info" id="player-track-info-trigger" role="button" tabindex="0" aria-label="Open full player">
+      <div id="player-bar-art-container" class="player-bar-art-container"></div>
+      <div class="player-track-details">
+        <div class="player-track-title" id="player-bar-title">Track Title</div>
+        <div class="player-track-artist" id="player-bar-artist">Artist</div>
+      </div>
+    </div>
+
+    <div class="player-center-controls">
+      <div class="player-buttons">
+        <button class="player-btn" id="player-prev-btn" title="Previous">PREV</button>
+        <button class="player-btn play-pause-btn" id="player-play-btn" title="Play">PLAY</button>
+        <button class="player-btn" id="player-next-btn" title="Next">NEXT</button>
+      </div>
+      <div class="player-timeline">
+        <span class="time-stamp" id="current-time">0:00</span>
+        <div class="timeline-slider-container" id="timeline-slider" role="slider" tabindex="0" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="timeline-track">
+            <div class="timeline-fill" id="timeline-fill"></div>
+          </div>
+          <div class="timeline-thumb" id="timeline-thumb"></div>
+        </div>
+        <span class="time-stamp" id="total-time">0:00</span>
+      </div>
+    </div>
+
+    <div class="player-right-controls">
+      <div class="volume-controls">
+        <span>VOL</span>
+        <div class="volume-slider-container" id="volume-slider" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+          <div class="volume-track">
+            <div class="volume-fill" id="volume-fill"></div>
+          </div>
+          <div class="volume-thumb" id="volume-thumb"></div>
+        </div>
+      </div>
+      <button class="player-btn" id="player-queue-btn" title="Queue" aria-controls="queue-overlay" aria-expanded="false">LIST</button>
+    </div>
+  </footer>
+
+  <!-- Floating queue overlay -->
+  <div id="queue-overlay" class="retro-border" role="region" aria-label="Upcoming queue" tabindex="-1" style="display: none; position: fixed; bottom: 110px; right: 24px; width: 320px; max-height: min(400px, calc(100vh - 134px)); overflow-y: auto; z-index: 1000; padding: 16px; background-color: var(--bg-secondary);">
+    <div style="display:flex;align-items:center;justify-content:space-between;font-family: 'Space Mono', monospace; font-weight: 700; font-size: 0.9rem; margin-bottom: 12px; border-bottom: 2px solid var(--border-color); padding-bottom: 6px;"><span>UPCOMING QUEUE</span><button class="player-btn" id="queue-close-btn" aria-label="Close queue">CLOSE</button></div>
+    <div id="queue-list-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
+  </div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/spotify.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

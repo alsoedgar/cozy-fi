@@ -1,0 +1,119 @@
+name: Cross-platform builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            os: windows-2022
+            platform: win32
+            arch: x64
+            package_dir: Cozy-Fi-win32-x64
+            archive: Cozy-Fi-windows-x64.zip
+          - label: macOS Intel
+            os: macos-15-intel
+            platform: darwin
+            arch: x64
+            package_dir: Cozy-Fi-darwin-x64
+            archive: Cozy-Fi-macos-intel.tar.gz
+          - label: macOS Apple Silicon
+            os: macos-15
+            platform: darwin
+            arch: arm64
+            package_dir: Cozy-Fi-darwin-arm64
+            archive: Cozy-Fi-macos-apple-silicon.tar.gz
+          - label: Linux x64
+            # Build against the older supported glibc baseline for wider distro compatibility.
+            os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            package_dir: Cozy-Fi-linux-x64
+            archive: Cozy-Fi-linux-x64.tar.gz
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache Rust downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ matrix.arch }}-librespot-0.8.0
+
+      - name: Select stable Rust
+        run: rustup update stable --no-self-update
+
+      - name: Install Linux audio build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libssl-dev pkg-config
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Test Windows and macOS UI
+        if: runner.os != 'Linux'
+        run: npm test
+
+      - name: Test Linux UI under Xvfb
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a npm test
+
+      - name: Build pinned native playback engine
+        run: npm run build:librespot
+
+      - name: Generate platform icon
+        run: npm run icon
+
+      - name: Package native application
+        run: npm run dist -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+
+      - name: Verify Windows and macOS package
+        if: runner.os != 'Linux'
+        run: npm run verify:dist -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+
+      - name: Verify Linux package under Xvfb
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a npm run verify:dist -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+
+      - name: Archive Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist\${{ matrix.package_dir }}\*" -DestinationPath "${{ matrix.archive }}" -Force
+
+      - name: Archive macOS or Linux build
+        if: runner.os != 'Windows'
+        run: tar -C dist -czf "${{ matrix.archive }}" "${{ matrix.package_dir }}"
+
+      - name: Upload native build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package_dir }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
