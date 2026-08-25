@@ -23,7 +23,7 @@ Cozy-Fi gives a Premium listener a focused, customizable desktop interface for t
 - Play through Cozy-Fi's local Spotify Connect output on Premium accounts, or use Spotify-link mode as a fallback.
 - Select any playlist or album song and keep its list order for automatic advance and previous/next navigation.
 - Control play/pause, seeking, volume, queue, likes, and playlist creation.
-- Open optional lyrics in either player with synchronized line highlighting when LRCLIB has timed lyrics, or a scrollable reading view when only plain lyrics are available.
+- Open optional lyrics in either player with synchronized line highlighting, broader LRCLIB matching for alternate releases, and private local `.lrc`/`.txt` fallbacks.
 - Switch between the full responsive app and a resizable, pinnable side player.
 - Use Morning Lo-Fi or Soft Sunset, enlarge the typography, or create and save custom seven-color palettes.
 - Keep long libraries and result sets manageable with loading skeletons and pagination.
@@ -83,16 +83,19 @@ Settings includes three playback choices:
 
 Open the full player or side player and select **LYRICS**. Cozy-Fi uses [LRCLIB](https://lrclib.net/docs), which is free to access and does not require an API key or a separate user account.
 
+- Cozy-Fi first checks LRCLIB's exact endpoint, then—when needed—ranks broader search results using title, primary/featured artist, album, and duration similarity. This covers common remaster, featured-artist, punctuation, diacritic, deluxe-edition, and alternate-title differences without showing an unrelated song's lyrics.
 - A synchronized result follows playback, centers the current line, and marks it with a high-contrast **NOW** treatment. Scroll manually at any time; select **FOLLOW** to return to the current line.
 - A plain result remains fully scrollable when timing data is unavailable.
+- For a new or missing song, select **ADD LOCAL** in the full player or **LOCAL** in the side player and choose a `.lrc` file with timestamps or a plain `.txt` file. The import is available in both lyric views and does not require an account or API key.
+- Select the local button again to replace the saved lyrics or choose **Use LRCLIB instead** to remove the app's local copy. Cozy-Fi never modifies or deletes the original file you selected.
 - Instrumental, unavailable, loading, retry, and rate-limit states stay inside the themed player instead of opening another app.
 - Automatic line following uses Cozy-Fi's local playback clock in standalone mode. Spotify App mode keeps synchronized lyrics available for manual scrolling because playback timing remains controlled by Spotify.
 
-Lyrics are optional and are fetched only after the Lyrics tab is opened for a selected track. Cozy-Fi sends LRCLIB the song title, artist, album, and duration needed to find a match; it does not send Spotify tokens, the user's Spotify profile, or the Spotify Client ID. Results are kept only in memory for the current app session. Availability and timing depend on LRCLIB's community database, so some tracks will not have lyrics.
+Lyrics are optional and are fetched only after the Lyrics tab is opened for a selected track. A lookup makes one exact request and, only if needed, up to two sequential alternate searches. Cozy-Fi sends LRCLIB only the song title, artist, album, and duration needed to find a match; it does not send Spotify tokens, the user's Spotify profile, or the Spotify Client ID. LRCLIB results are kept only in memory for the current app session. Local imports are copied into Cozy-Fi's per-user application-data folder and are never uploaded by Cozy-Fi. Availability still depends on LRCLIB's community database, so local files are the reliable fallback for very new or missing tracks.
 
 ## Side player
 
-Open **MENU → Side Player** to switch into the compact player; the full window hides so only the side player remains. Its live Spotify artwork, timeline, play/pause, previous, and next controls use the same playback session as the full app. Select **COVER** or **LYRICS** in the compact header without hiding the track and playback controls. The side-player lyrics view reuses the same lazy LRCLIB lookup and session cache: timed lines follow standalone playback, while plain lyrics and Spotify App mode remain manually scrollable. Drag the lower-right grip to resize it, or focus the grip and use the arrow keys. **PIN** toggles always-on-top, **FULL** (or a title-bar double-click) hides the compact window and restores the full app, and **HIDE** minimizes the side player so it can be restored from the taskbar or dock. Its size and screen position are remembered.
+Open **MENU → Side Player** to switch into the compact player; the full window hides so only the side player remains. Its live Spotify artwork, timeline, play/pause, previous, and next controls use the same playback session as the full app. Select **COVER** or **LYRICS** in the compact header without hiding the track and playback controls. The side-player lyrics view reuses the same lazy expanded LRCLIB lookup and local-file library: timed lines follow standalone playback, while plain lyrics and Spotify App mode remain manually scrollable. Use **LOCAL** to add, replace, or remove a local lyric file without returning to the full app. Drag the lower-right grip to resize it, or focus the grip and use the arrow keys. **PIN** toggles always-on-top, **FULL** (or a title-bar double-click) hides the compact window and restores the full app, and **HIDE** minimizes the side player so it can be restored from the taskbar or dock. Its size and screen position are remembered.
 
 Morning Lo-Fi, Soft Sunset, enlarged type, and custom palette previews are mirrored into the side player immediately. Standalone mode provides all compact controls; Spotify App mode shows the selected track with an **OPEN** action because transport controls remain in Spotify.
 
@@ -118,7 +121,7 @@ npm start
 
 `npm run build:librespot` builds the pinned, patched playback engine for the current operating system and CPU architecture, records its SHA-256 in `librespot-checksums.json`, and marks it executable on macOS/Linux. Native playback binaries cannot be safely cross-compiled by the packaging command: each package must be created on a matching host.
 
-`npm test` runs JavaScript syntax checks, playback-context and LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the lyrics IPC/tab/scrolling path in both players, side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
+`npm test` runs JavaScript syntax checks, playback-context tests, expanded lyric-ranking/import/LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the LRCLIB and local-lyrics IPC/tab/scrolling paths in both players, side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
 
 To create and verify an unpacked build for the current host and architecture:
 
@@ -160,7 +163,8 @@ The generated folders are unsigned, unpacked personal builds rather than install
 - Electron runs with renderer sandboxing, context isolation, no Node integration, and a narrow preload API.
 - Spotify OAuth uses PKCE plus a random state value and an exact loopback callback.
 - User-controlled Spotify metadata is escaped or written with `textContent` before display.
-- LRCLIB requests are made only from the sandboxed app's main process after the Lyrics tab is opened. They contain track matching metadata, never Spotify credentials, and their results are cached only in memory.
+- LRCLIB requests are made sequentially only from the sandboxed app's main process after the Lyrics tab is opened. They contain track matching metadata, never Spotify credentials, and their results are cached only in memory.
+- Optional local `.lrc`/`.txt` imports are size-limited, parsed as text, and copied under Electron's per-user application-data directory. Cozy-Fi does not upload them, retain the source path, or alter the original file.
 - Disconnecting deletes the locally retained Spotify refresh token and local-player credential, then stops the playback process.
 - The local-player credential is written by librespot under Electron's per-user application-data directory. It is not passed on the command line and is removed by **DISCONNECT**, but librespot does not encrypt that cache file itself. Protect your operating-system account and do not share the app-data folder.
 - On Linux, Cozy-Fi refuses to persist the Web API refresh token when Electron only offers the insecure `basic_text` backend. Install and unlock a supported Secret Service/KWallet keyring for persistent sign-in; otherwise the token stays memory-only for that run.

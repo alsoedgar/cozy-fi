@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lyricsMessageDescription: document.getElementById('mini-lyrics-message-description'),
     lyricsRetry: document.getElementById('mini-lyrics-retry'),
     lyricsFollow: document.getElementById('mini-lyrics-follow'),
+    lyricsImport: document.getElementById('mini-lyrics-import'),
     cover: document.getElementById('mini-cover'),
     coverFallback: document.getElementById('mini-cover-fallback'),
     title: document.getElementById('mini-track-title'),
@@ -71,12 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
       messageTitle: elements.lyricsMessageTitle,
       messageDescription: elements.lyricsMessageDescription,
       retryButton: elements.lyricsRetry,
-      followButton: elements.lyricsFollow
+      followButton: elements.lyricsFollow,
+      importButton: elements.lyricsImport
     }, {
       getPosition: () => state.positionMs,
       canSync: () => state.capability?.mode === 'standalone',
       isPlayerViewVisible: () => !document.hidden,
-      promptModeLabel: 'LRCLIB · NO API KEY'
+      promptModeLabel: 'LRCLIB · NO API KEY',
+      importLocalLabel: 'LOCAL',
+      replaceLocalLabel: 'LOCAL'
     })
     : null;
 

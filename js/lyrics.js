@@ -41,6 +41,9 @@
 
   function sanitizeLyricsRecord(rawRecord) {
     const record = rawRecord && typeof rawRecord === 'object' ? rawRecord : {};
+    const source = ['lrclib', 'local'].includes(record.source) ? record.source : 'lrclib';
+    const matchType = ['exact', 'expanded', 'local'].includes(record.matchType) ? record.matchType : 'exact';
+    const matchScore = Number(record.matchScore);
     return {
       id: Number.isSafeInteger(Number(record.id)) ? Number(record.id) : null,
       trackName: normalizeMetadata(record.trackName || record.name),
@@ -49,7 +52,197 @@
       duration: Number.isFinite(Number(record.duration)) ? Number(record.duration) : null,
       instrumental: Boolean(record.instrumental),
       plainLyrics: limitLyricsText(record.plainLyrics),
-      syncedLyrics: limitLyricsText(record.syncedLyrics)
+      syncedLyrics: limitLyricsText(record.syncedLyrics),
+      source,
+      matchType,
+      matchScore: Number.isFinite(matchScore) ? Math.max(0, Math.min(1, matchScore)) : null
+    };
+  }
+
+  function comparableMetadata(value) {
+    const normalized = normalizeMetadata(value).normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+    const comparable = normalized
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[’']/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    return comparable || normalized.toLowerCase();
+  }
+
+  const TITLE_QUALIFIER_WORDS = '(?:feat(?:uring)?|ft|with|remaster(?:ed)?|re[-\\s]?record(?:ed)?|version|edit|mix|remix|live|acoustic|instrumental|radio|mono|stereo|demo|session|karaoke|club|extended|sped\\s*up|slowed(?:\\s*down)?|deluxe|bonus|explicit|clean|soundtrack|original\\s+motion\\s+picture|from(?:\\s+.+)?)';
+
+  function simplifyTrackTitle(value) {
+    let title = normalizeMetadata(value);
+    if (!title) return '';
+    const bracketedQualifier = new RegExp(`\\s*[\\(\\[\\{][^\\)\\]\\}]*\\b${TITLE_QUALIFIER_WORDS}\\b[^\\)\\]\\}]*[\\)\\]\\}]`, 'gi');
+    const suffixQualifier = new RegExp(`\\s*[-–—:]\\s*(?:\\d{4}\\s+)?${TITLE_QUALIFIER_WORDS}\\b.*$`, 'i');
+    title = title.replace(bracketedQualifier, ' ').replace(suffixQualifier, ' ').replace(/\s+/g, ' ').trim();
+    return title || normalizeMetadata(value);
+  }
+
+  function primaryArtistName(value) {
+    const artist = normalizeMetadata(value);
+    if (!artist) return '';
+    const primary = artist.split(/\s*(?:,|;|\bfeat(?:uring)?\.?\b|\bft\.?\b|\bwith\b)\s*/i)[0];
+    return primary.trim() || artist;
+  }
+
+  function uniqueComparableVariants(value, simplifier) {
+    const variants = [normalizeMetadata(value)];
+    const simplified = simplifier?.(value);
+    if (simplified) variants.push(simplified);
+    return [...new Set(variants.map(comparableMetadata).filter(Boolean))];
+  }
+
+  function diceCoefficient(leftValue, rightValue) {
+    const left = comparableMetadata(leftValue);
+    const right = comparableMetadata(rightValue);
+    if (!left || !right) return 0;
+    if (left === right) return 1;
+    if (left.length < 2 || right.length < 2) return 0;
+    const pairs = new Map();
+    for (let index = 0; index < left.length - 1; index += 1) {
+      const pair = left.slice(index, index + 2);
+      pairs.set(pair, (pairs.get(pair) || 0) + 1);
+    }
+    let intersection = 0;
+    for (let index = 0; index < right.length - 1; index += 1) {
+      const pair = right.slice(index, index + 2);
+      const count = pairs.get(pair) || 0;
+      if (count > 0) {
+        intersection += 1;
+        pairs.set(pair, count - 1);
+      }
+    }
+    return (2 * intersection) / ((left.length - 1) + (right.length - 1));
+  }
+
+  function tokenCoefficient(leftValue, rightValue) {
+    const left = new Set(comparableMetadata(leftValue).split(' ').filter(Boolean));
+    const right = new Set(comparableMetadata(rightValue).split(' ').filter(Boolean));
+    if (left.size === 0 || right.size === 0) return 0;
+    let intersection = 0;
+    for (const token of left) if (right.has(token)) intersection += 1;
+    return (2 * intersection) / (left.size + right.size);
+  }
+
+  function metadataSimilarity(leftValue, rightValue) {
+    if (!normalizeMetadata(leftValue) || !normalizeMetadata(rightValue)) return 0;
+    return Math.max(diceCoefficient(leftValue, rightValue), tokenCoefficient(leftValue, rightValue));
+  }
+
+  function bestVariantSimilarity(leftVariants, rightVariants) {
+    let best = 0;
+    for (const left of leftVariants) {
+      for (const right of rightVariants) best = Math.max(best, metadataSimilarity(left, right));
+    }
+    return best;
+  }
+
+  function buildLyricsSearchQueries(rawLookup) {
+    const lookup = rawLookup?.cacheKey ? rawLookup : normalizeLyricsLookup(rawLookup);
+    const simplifiedTitle = simplifyTrackTitle(lookup.trackName);
+    const primaryArtist = primaryArtistName(lookup.artistName);
+    return [
+      { trackName: lookup.trackName, artistName: lookup.artistName },
+      { q: `${simplifiedTitle || lookup.trackName} ${primaryArtist || lookup.artistName}` }
+    ];
+  }
+
+  function scoreLyricsCandidate(rawLookup, rawCandidate) {
+    const lookup = rawLookup?.cacheKey ? rawLookup : normalizeLyricsLookup(rawLookup);
+    const record = sanitizeLyricsRecord(rawCandidate);
+    if (!record.trackName || !record.artistName || (!record.instrumental && !record.plainLyrics && !record.syncedLyrics)) {
+      return null;
+    }
+
+    const titleScore = bestVariantSimilarity(
+      uniqueComparableVariants(lookup.trackName, simplifyTrackTitle),
+      uniqueComparableVariants(record.trackName, simplifyTrackTitle)
+    );
+    const artistScore = bestVariantSimilarity(
+      uniqueComparableVariants(lookup.artistName, primaryArtistName),
+      uniqueComparableVariants(record.artistName, primaryArtistName)
+    );
+    if (titleScore < 0.68 || artistScore < 0.55) return null;
+
+    let durationScore = 0.45;
+    if (lookup.durationSeconds && record.duration) {
+      const difference = Math.abs(lookup.durationSeconds - record.duration);
+      durationScore = difference <= 2 ? 1 : difference <= 8 ? 0.84 : difference <= 20 ? 0.52 : difference <= 45 ? 0.2 : 0;
+    }
+    const albumScore = lookup.albumName && record.albumName
+      ? metadataSimilarity(lookup.albumName, record.albumName)
+      : 0.45;
+    const qualityBonus = record.syncedLyrics ? 0.025 : record.plainLyrics ? 0.01 : 0.005;
+    const score = Math.min(1, (titleScore * 0.58) + (artistScore * 0.28) + (durationScore * 0.1) + (albumScore * 0.04) + qualityBonus);
+    if (score < 0.7) return null;
+    return { record, score, titleScore, artistScore, durationScore, albumScore };
+  }
+
+  function selectBestLyricsCandidate(rawLookup, rawCandidates) {
+    const candidates = Array.isArray(rawCandidates) ? rawCandidates : [];
+    let best = null;
+    for (const candidate of candidates) {
+      const scored = scoreLyricsCandidate(rawLookup, candidate);
+      if (!scored) continue;
+      if (!best || scored.score > best.score ||
+          (scored.score === best.score && scored.record.syncedLyrics && !best.record.syncedLyrics)) {
+        best = scored;
+      }
+    }
+    return best;
+  }
+
+  function finalizeLyricsMatch(rawLookup, scoredCandidate, matchType = 'expanded') {
+    if (!scoredCandidate?.record) return null;
+    const lookup = rawLookup?.cacheKey ? rawLookup : normalizeLyricsLookup(rawLookup);
+    const record = sanitizeLyricsRecord(scoredCandidate.record);
+    if (record.syncedLyrics && lookup.durationSeconds && record.duration) {
+      const safeTimingDifference = Math.max(8, lookup.durationSeconds * 0.04);
+      if (Math.abs(lookup.durationSeconds - record.duration) > safeTimingDifference) {
+        if (!record.plainLyrics) {
+          record.plainLyrics = parseSyncedLyrics(record.syncedLyrics).map(line => line.text).join('\n').trim();
+        }
+        record.syncedLyrics = '';
+      }
+    }
+    return {
+      found: true,
+      ...record,
+      source: 'lrclib',
+      matchType: matchType === 'exact' ? 'exact' : 'expanded',
+      matchScore: Math.round(Math.max(0, Math.min(1, Number(scoredCandidate.score) || 0)) * 1000) / 1000
+    };
+  }
+
+  function createImportedLyricsRecord(rawTrack, rawText, fileName = '') {
+    const lookup = normalizeLyricsLookup(rawTrack);
+    const lyrics = limitLyricsText(rawText);
+    if (!lyrics) throw new Error('The selected lyrics file is empty.');
+    const syncedLines = parseSyncedLyrics(lyrics);
+    const expectsSyncedLyrics = /\.lrc$/i.test(normalizeMetadata(fileName));
+    if (expectsSyncedLyrics && syncedLines.length === 0) {
+      throw new Error('This .lrc file does not contain readable timestamps.');
+    }
+    const syncedLyrics = syncedLines.length > 0 ? lyrics : '';
+    const plainLyrics = syncedLines.length > 0
+      ? syncedLines.map(line => line.text).join('\n').trim()
+      : lyrics;
+    return {
+      found: true,
+      ...sanitizeLyricsRecord({
+        trackName: lookup.trackName,
+        artistName: lookup.artistName,
+        albumName: lookup.albumName,
+        duration: lookup.durationSeconds,
+        plainLyrics,
+        syncedLyrics,
+        source: 'local',
+        matchType: 'local',
+        matchScore: 1
+      })
     };
   }
 
@@ -163,6 +356,7 @@
       this.activeLineIndex = -2;
       this.requestGeneration = 0;
       this.loadingTrackKey = '';
+      this.importBusy = false;
       this.autoFollow = true;
       this.lineElements = [];
       this.initialize();
@@ -200,6 +394,17 @@
         this.centerActiveLine('smooth');
       });
       this.elements.retryButton?.addEventListener('click', () => this.load(true));
+      this.elements.importButton?.addEventListener('click', () => this.importLocal());
+      this.bridge?.onLocalUpdate?.(payload => {
+        if (!payload?.cacheKey || payload.cacheKey !== this.currentTrackKey) return;
+        this.requestGeneration += 1;
+        this.loadingTrackKey = '';
+        this.model = null;
+        this.activeLineIndex = -2;
+        this.lineElements = [];
+        if (this.panel === 'lyrics' && this.options.isPlayerViewVisible?.() !== false) this.load();
+        else this.renderPrompt();
+      });
       this.activate('artwork', false);
       this.renderPrompt();
     }
@@ -223,12 +428,14 @@
       if (nextKey === this.currentTrackKey) return;
       this.currentTrackKey = nextKey;
       this.requestGeneration += 1;
+      this.loadingTrackKey = '';
       this.model = null;
       this.activeLineIndex = -2;
       this.lineElements = [];
       this.autoFollow = true;
       if (this.elements.followButton) this.elements.followButton.hidden = true;
       this.updateHeading();
+      this.updateImportButton();
       if (this.panel === 'lyrics' && this.options.isPlayerViewVisible?.() !== false) this.load();
       else this.renderPrompt();
     }
@@ -248,12 +455,28 @@
       this.elements.badge.dataset.state = state;
     }
 
+    updateImportButton() {
+      const button = this.elements.importButton;
+      if (!button) return;
+      const available = Boolean(this.track && this.track.spotifyType !== 'episode' && this.bridge?.importLocal);
+      button.hidden = !available;
+      button.disabled = this.importBusy;
+      const usingLocal = this.model?.record?.source === 'local';
+      button.textContent = usingLocal
+        ? (this.options.replaceLocalLabel || 'REPLACE LOCAL')
+        : (this.options.importLocalLabel || 'ADD LOCAL');
+      button.title = usingLocal
+        ? 'Replace these local lyrics or return to LRCLIB'
+        : 'Use a local .lrc or .txt file for this song';
+    }
+
     renderPrompt() {
       this.updateHeading();
       this.setBadge(this.track ? 'OPTIONAL' : 'WAITING', 'idle');
       if (this.elements.modeLabel) {
         this.elements.modeLabel.textContent = this.options.promptModeLabel || 'LRCLIB · OPTIONAL LOOKUP';
       }
+      this.updateImportButton();
       this.showMessage(
         this.track ? 'Lyrics are ready when you are.' : 'Choose a song first.',
         this.track
@@ -277,7 +500,8 @@
         line.setAttribute('aria-hidden', 'true');
         this.elements.scroller.appendChild(line);
       });
-      if (this.elements.modeLabel) this.elements.modeLabel.textContent = 'CONTACTING LRCLIB · NO API KEY';
+      if (this.elements.modeLabel) this.elements.modeLabel.textContent = 'SEARCHING LRCLIB · EXACT + ALTERNATES';
+      this.updateImportButton();
     }
 
     showMessage(title, description, retry) {
@@ -288,6 +512,44 @@
       this.elements.messageDescription.textContent = description;
       this.elements.retryButton.hidden = !retry;
       if (this.elements.followButton) this.elements.followButton.hidden = true;
+      this.updateImportButton();
+    }
+
+    trackLookupPayload() {
+      return {
+        title: this.track?.title,
+        artist: this.track?.artist,
+        album: this.track?.album,
+        durationMs: this.track?.durationMs
+      };
+    }
+
+    async importLocal() {
+      if (!this.track || !this.bridge?.importLocal || this.importBusy) return;
+      this.importBusy = true;
+      this.loadingTrackKey = '';
+      this.updateImportButton();
+      const generation = ++this.requestGeneration;
+      const requestedKey = this.currentTrackKey;
+      try {
+        const payload = await this.bridge.importLocal(this.trackLookupPayload());
+        if (generation !== this.requestGeneration || requestedKey !== this.currentTrackKey || payload?.canceled) return;
+        if (payload?.removed) {
+          this.model = null;
+          await this.load();
+          return;
+        }
+        this.model = buildLyricsModel(payload);
+        this.renderModel();
+      } catch (error) {
+        if (generation !== this.requestGeneration || requestedKey !== this.currentTrackKey) return;
+        this.setBadge('TRY AGAIN', 'error');
+        this.showMessage('Local lyrics could not be added.', error?.message || 'Choose a valid .lrc or .txt file and try again.', false);
+        if (this.elements.modeLabel) this.elements.modeLabel.textContent = 'LOCAL LYRICS IMPORT INTERRUPTED';
+      } finally {
+        this.importBusy = false;
+        this.updateImportButton();
+      }
     }
 
     async load(force = false) {
@@ -314,12 +576,7 @@
       this.loadingTrackKey = requestedKey;
       this.renderLoading();
       try {
-        const payload = await this.bridge.get({
-          title: this.track.title,
-          artist: this.track.artist,
-          album: this.track.album,
-          durationMs: this.track.durationMs
-        }, { force });
+        const payload = await this.bridge.get(this.trackLookupPayload(), { force });
         if (generation !== this.requestGeneration || requestedKey !== this.currentTrackKey) return;
         this.model = buildLyricsModel(payload);
         this.renderModel();
@@ -338,12 +595,15 @@
 
     updateModeLabel(canSync = Boolean(this.options.canSync?.())) {
       if (!this.elements.modeLabel) return;
+      const prefix = this.model?.record?.source === 'local'
+        ? 'LOCAL LRC'
+        : this.model?.record?.matchType === 'expanded' ? 'LRCLIB BROAD MATCH' : 'SYNCED';
       if (!canSync) {
-        this.elements.modeLabel.textContent = 'SYNCED · MANUAL SCROLL IN SPOTIFY APP MODE';
+        this.elements.modeLabel.textContent = `${prefix} · MANUAL SCROLL IN SPOTIFY APP MODE`;
       } else if (this.autoFollow) {
-        this.elements.modeLabel.textContent = 'SYNCED · FOLLOWING PLAYBACK';
+        this.elements.modeLabel.textContent = `${prefix} · FOLLOWING PLAYBACK`;
       } else {
-        this.elements.modeLabel.textContent = 'SYNCED · MANUAL SCROLL · SELECT FOLLOW';
+        this.elements.modeLabel.textContent = `${prefix} · MANUAL SCROLL · SELECT FOLLOW`;
       }
     }
 
@@ -353,6 +613,7 @@
       this.elements.scroller.innerHTML = '';
       this.lineElements = [];
       this.activeLineIndex = -2;
+      this.updateImportButton();
       if (this.model.kind === 'synced') {
         this.setBadge('SYNCED', 'synced');
         this.updateModeLabel(Boolean(this.options.canSync?.()));
@@ -362,7 +623,12 @@
       }
       if (this.model.kind === 'plain') {
         this.setBadge('SCROLL', 'plain');
-        if (this.elements.modeLabel) this.elements.modeLabel.textContent = 'UNSYNCED · SCROLLABLE LYRICS';
+        if (this.elements.modeLabel) {
+          const prefix = this.model.record?.source === 'local'
+            ? 'LOCAL FILE'
+            : this.model.record?.matchType === 'expanded' ? 'LRCLIB BROAD MATCH' : 'UNSYNCED';
+          this.elements.modeLabel.textContent = `${prefix} · SCROLLABLE LYRICS`;
+        }
         this.renderPlainLines();
         return;
       }
@@ -380,8 +646,12 @@
         return;
       }
       this.setBadge('NOT FOUND', 'empty');
-      if (this.elements.modeLabel) this.elements.modeLabel.textContent = 'NO LRCLIB MATCH';
-      this.showMessage('No lyrics found for this song.', 'The song may be instrumental, newly released, or not yet available in LRCLIB.', true);
+      if (this.elements.modeLabel) this.elements.modeLabel.textContent = 'NO EXACT OR ALTERNATE LRCLIB MATCH';
+      this.showMessage(
+        'No lyrics found for this song.',
+        'Cozy-Fi tried exact and alternate matches. Add a local .lrc or .txt file, or retry later for a newly released song.',
+        true
+      );
     }
 
     renderSyncedLines() {
@@ -460,6 +730,13 @@
     MAX_LYRIC_LINES,
     normalizeLyricsLookup,
     sanitizeLyricsRecord,
+    simplifyTrackTitle,
+    primaryArtistName,
+    buildLyricsSearchQueries,
+    scoreLyricsCandidate,
+    selectBestLyricsCandidate,
+    finalizeLyricsMatch,
+    createImportedLyricsRecord,
     parseSyncedLyrics,
     parsePlainLyrics,
     findActiveLineIndex,

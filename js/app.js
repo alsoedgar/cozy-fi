@@ -218,11 +218,14 @@ document.addEventListener('DOMContentLoaded', () => {
     messageTitle: document.getElementById('lyrics-message-title'),
     messageDescription: document.getElementById('lyrics-message-description'),
     retryButton: document.getElementById('lyrics-retry-button'),
-    followButton: document.getElementById('lyrics-follow-button')
+    followButton: document.getElementById('lyrics-follow-button'),
+    importButton: document.getElementById('lyrics-import-button')
   }, {
     getPosition: () => currentSpotifyPosition,
     canSync: () => spotify.isStandalonePlayback,
-    isPlayerViewVisible: () => document.getElementById('view-player')?.classList.contains('active')
+    isPlayerViewVisible: () => document.getElementById('view-player')?.classList.contains('active'),
+    importLocalLabel: 'ADD LOCAL',
+    replaceLocalLabel: 'REPLACE LOCAL'
   });
 
   // 4. Initialize Renderer

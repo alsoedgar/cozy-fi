@@ -4,6 +4,13 @@ const {
   MAX_LYRIC_LINES,
   normalizeLyricsLookup,
   sanitizeLyricsRecord,
+  simplifyTrackTitle,
+  primaryArtistName,
+  buildLyricsSearchQueries,
+  scoreLyricsCandidate,
+  selectBestLyricsCandidate,
+  finalizeLyricsMatch,
+  createImportedLyricsRecord,
   parseSyncedLyrics,
   parsePlainLyrics,
   findActiveLineIndex,
@@ -23,6 +30,18 @@ assert.deepEqual(normalizeLyricsLookup({
   cacheKey: ['morning song', 'cozy artist', 'café sessions', '233'].join('\u001f')
 });
 assert.throws(() => normalizeLyricsLookup({ title: 'Missing artist' }), /title and artist/);
+
+assert.equal(simplifyTrackTitle('New Light (feat. June) - 2026 Remaster'), 'New Light');
+assert.equal(simplifyTrackTitle('Keep This (Part 2)'), 'Keep This (Part 2)');
+assert.equal(primaryArtistName('Cozy Artist, June'), 'Cozy Artist');
+assert.deepEqual(buildLyricsSearchQueries({
+  title: 'New Light (feat. June) - 2026 Remaster',
+  artist: 'Cozy Artist, June',
+  durationMs: 201000
+}), [
+  { trackName: 'New Light (feat. June) - 2026 Remaster', artistName: 'Cozy Artist, June' },
+  { q: 'New Light Cozy Artist' }
+]);
 
 const parsed = parseSyncedLyrics([
   '[ar:Cozy Artist]',
@@ -58,6 +77,72 @@ const trimmedRecord = sanitizeLyricsRecord({
 assert.equal(trimmedRecord.id, 42);
 assert.equal(trimmedRecord.trackName, 'Song');
 assert.equal(trimmedRecord.plainLyrics.length, MAX_LYRICS_LENGTH);
+
+const expandedLookup = normalizeLyricsLookup({
+  title: 'New Light (feat. June) - 2026 Remaster',
+  artist: 'Cozy Artist, June',
+  album: 'New Light (Deluxe)',
+  durationMs: 201000
+});
+const closeCandidate = {
+  id: 7,
+  trackName: 'New Light',
+  artistName: 'Cozy Artist',
+  albumName: 'New Light',
+  duration: 200,
+  plainLyrics: 'A newer song now has lyrics.',
+  syncedLyrics: '[00:01.00] A newer song now has lyrics.'
+};
+const acceptedCandidate = scoreLyricsCandidate(expandedLookup, closeCandidate);
+assert.ok(acceptedCandidate?.score >= 0.8, 'alternate title and featured-artist forms should match');
+assert.ok(scoreLyricsCandidate(normalizeLyricsLookup({
+  title: 'Déjà Vu!',
+  artist: 'Beyoncé',
+  durationMs: 240000
+}), {
+  trackName: 'Deja Vu',
+  artistName: 'Beyonce',
+  duration: 240,
+  plainLyrics: 'Diacritic-insensitive match'
+}), 'punctuation and Latin diacritics should not block a safe match');
+assert.equal(scoreLyricsCandidate(expandedLookup, {
+  ...closeCandidate,
+  artistName: 'Completely Different Performer'
+}), null);
+assert.equal(selectBestLyricsCandidate(expandedLookup, [
+  { ...closeCandidate, duration: 245, syncedLyrics: '', plainLyrics: 'Loose match' },
+  closeCandidate
+]).record.id, 7);
+
+const expandedResult = finalizeLyricsMatch(expandedLookup, acceptedCandidate, 'expanded');
+assert.equal(expandedResult.found, true);
+assert.equal(expandedResult.matchType, 'expanded');
+assert.equal(expandedResult.source, 'lrclib');
+assert.ok(expandedResult.syncedLyrics);
+
+const timingMismatch = finalizeLyricsMatch(expandedLookup, scoreLyricsCandidate(expandedLookup, {
+  ...closeCandidate,
+  duration: 220
+}), 'expanded');
+assert.equal(timingMismatch.syncedLyrics, '', 'far-off versions should fall back to safely scrollable lyrics');
+assert.ok(timingMismatch.plainLyrics);
+
+const importedSynced = createImportedLyricsRecord({
+  title: 'New Light',
+  artist: 'Cozy Artist',
+  durationMs: 201000
+}, '[00:01.00] First local line\n[00:04.50] Second local line', 'new-light.lrc');
+assert.equal(importedSynced.source, 'local');
+assert.equal(importedSynced.matchType, 'local');
+assert.equal(parseSyncedLyrics(importedSynced.syncedLyrics).length, 2);
+assert.match(importedSynced.plainLyrics, /First local line/);
+const importedPlain = createImportedLyricsRecord({ title: 'New Light', artist: 'Cozy Artist' }, 'Just\nplain lyrics', 'new-light.txt');
+assert.equal(importedPlain.syncedLyrics, '');
+assert.equal(importedPlain.plainLyrics, 'Just\nplain lyrics');
+assert.throws(
+  () => createImportedLyricsRecord({ title: 'New Light', artist: 'Cozy Artist' }, 'No timestamps', 'bad.lrc'),
+  /timestamps/
+);
 
 const syncedModel = buildLyricsModel({
   found: true,

@@ -180,7 +180,10 @@
               </div>
               <div class="lyrics-card-actions">
                 <span class="lyrics-mode-label" id="lyrics-mode-label">LRCLIB · OPTIONAL LOOKUP</span>
-                <button class="retro-button lyrics-follow-button" id="lyrics-follow-button" type="button" hidden>FOLLOW</button>
+                <div class="lyrics-card-button-row">
+                  <button class="retro-button lyrics-follow-button" id="lyrics-follow-button" type="button" hidden>FOLLOW</button>
+                  <button class="retro-button lyrics-follow-button" id="lyrics-import-button" type="button" hidden>ADD LOCAL</button>
+                </div>
               </div>
             </header>
             <div class="lyrics-scroll" id="lyrics-scroll" tabindex="0" aria-label="Song lyrics"></div>
@@ -190,7 +193,7 @@
               <p id="lyrics-message-description">Play a Spotify track, then return here for available lyrics.</p>
               <button class="retro-button" id="lyrics-retry-button" type="button" hidden>TRY AGAIN</button>
             </div>
-            <footer class="lyrics-card-footer">Lyrics are requested from LRCLIB only when this tab is opened and are cached in memory for this app session.</footer>
+            <footer class="lyrics-card-footer">Cozy-Fi checks exact and alternate LRCLIB matches only when this tab opens. Optional local .lrc/.txt lyrics stay on this device.</footer>
           </article>
         </section>
       </main>

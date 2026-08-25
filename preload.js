@@ -15,7 +15,9 @@ contextBridge.exposeInMainWorld('cozyApi', {
     disconnect: () => ipcRenderer.invoke('spotify-logout')
   },
   lyrics: {
-    get: (track, options) => ipcRenderer.invoke('get-lyrics', track, options)
+    get: (track, options) => ipcRenderer.invoke('get-lyrics', track, options),
+    importLocal: track => ipcRenderer.invoke('import-local-lyrics', track),
+    onLocalUpdate: callback => subscribe('lyrics-local-updated', callback)
   },
   spotify: {
     getProfile: () => ipcRenderer.invoke('get-profile'),

@@ -1,5 +1,5 @@
 // Cozy-Fi Desktop App Entry Point (Electron main process)
-const { app, BrowserWindow, ipcMain, safeStorage, shell, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, screen } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -8,7 +8,15 @@ const { pathToFileURL } = require('url');
 const { spawn } = require('child_process');
 const librespotManifest = require('./librespot-checksums.json');
 const { normalizeContextOffset } = require('./js/playback-context');
-const { normalizeLyricsLookup, sanitizeLyricsRecord } = require('./js/lyrics');
+const {
+  normalizeLyricsLookup,
+  sanitizeLyricsRecord,
+  buildLyricsSearchQueries,
+  scoreLyricsCandidate,
+  selectBestLyricsCandidate,
+  finalizeLyricsMatch,
+  createImportedLyricsRecord
+} = require('./js/lyrics');
 
 const SPOTIFY_API_BASE = 'https://api.spotify.com/';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -27,10 +35,14 @@ const SIDE_PLAYER_MAX_WIDTH = 700;
 const SIDE_PLAYER_MAX_HEIGHT = 1000;
 const SIDE_PLAYER_ARTWORK_MAX_BYTES = 3 * 1024 * 1024;
 const SIDE_PLAYER_ARTWORK_CACHE_LIMIT = 16;
-const LRCLIB_API_URL = 'https://lrclib.net/api/get';
+const LRCLIB_GET_URL = 'https://lrclib.net/api/get';
+const LRCLIB_SEARCH_URL = 'https://lrclib.net/api/search';
 const LRCLIB_CLIENT_HOMEPAGE = 'https://github.com/alsoedgar/cozy-fi';
 const LRCLIB_MIN_REQUEST_INTERVAL_MS = 350;
 const LRCLIB_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+const LRCLIB_SEARCH_RESPONSE_MAX_BYTES = 6 * 1024 * 1024;
+const LOCAL_LYRICS_MAX_BYTES = 256 * 1024;
+const LOCAL_LYRICS_RECORD_MAX_BYTES = 1024 * 1024;
 const LYRICS_CACHE_LIMIT = 100;
 
 let mainWindow = null;
@@ -76,6 +88,7 @@ let lyricsBlockedUntil = 0;
 const configPath = path.join(app.getPath('userData'), 'cozy-fi-config.json');
 const playbackCachePath = path.join(app.getPath('userData'), 'librespot');
 const playbackCredentialsPath = path.join(playbackCachePath, 'credentials.json');
+const localLyricsDirectory = path.join(app.getPath('userData'), 'lyrics');
 
 app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
@@ -889,7 +902,7 @@ async function readLimitedResponseText(response, maximumBytes) {
   return Buffer.concat(chunks, receivedBytes).toString('utf8');
 }
 
-async function fetchLrclibJson(url) {
+async function fetchLrclibJson(url, maximumBytes = LRCLIB_RESPONSE_MAX_BYTES) {
   if (!(url instanceof URL) || url.origin !== 'https://lrclib.net') {
     throw new Error('Blocked an unexpected lyrics service URL.');
   }
@@ -928,7 +941,7 @@ async function fetchLrclibJson(url) {
       await response.body?.cancel().catch(() => undefined);
       throw new Error(`LRCLIB returned HTTP ${response.status}.`);
     }
-    const text = await readLimitedResponseText(response, LRCLIB_RESPONSE_MAX_BYTES);
+    const text = await readLimitedResponseText(response, maximumBytes);
     let data;
     try {
       data = JSON.parse(text);
@@ -953,16 +966,112 @@ function rememberLyrics(cacheKey, value, lifetimeMs) {
   return value;
 }
 
+function localLyricsPath(cacheKey) {
+  const digest = crypto.createHash('sha256').update(cacheKey).digest('hex');
+  return path.join(localLyricsDirectory, `${digest}.json`);
+}
+
+async function readLocalLyrics(lookup) {
+  try {
+    const recordPath = localLyricsPath(lookup.cacheKey);
+    const fileInfo = await fs.promises.stat(recordPath);
+    if (!fileInfo.isFile() || fileInfo.size > LOCAL_LYRICS_RECORD_MAX_BYTES) return null;
+    const raw = await fs.promises.readFile(recordPath, 'utf8');
+    const stored = JSON.parse(raw);
+    if (stored?.version !== 1 || stored?.cacheKey !== lookup.cacheKey) return null;
+    const record = sanitizeLyricsRecord(stored.record);
+    if (!record.instrumental && !record.plainLyrics && !record.syncedLyrics) return null;
+    return {
+      found: true,
+      ...record,
+      source: 'local',
+      matchType: 'local',
+      matchScore: 1
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') console.warn('[Lyrics] Could not read a local lyrics override:', error.message);
+    return null;
+  }
+}
+
+async function writeLocalLyrics(lookup, record) {
+  await fs.promises.mkdir(localLyricsDirectory, { recursive: true, mode: 0o700 });
+  const payload = JSON.stringify({
+    version: 1,
+    cacheKey: lookup.cacheKey,
+    record: sanitizeLyricsRecord(record)
+  });
+  await fs.promises.writeFile(localLyricsPath(lookup.cacheKey), payload, { encoding: 'utf8', mode: 0o600 });
+}
+
+async function removeLocalLyrics(lookup) {
+  await fs.promises.rm(localLyricsPath(lookup.cacheKey), { force: true });
+  lyricsCache.delete(lookup.cacheKey);
+}
+
+function publishLocalLyricsUpdate(sender, lookup, action) {
+  const payload = { cacheKey: lookup.cacheKey, action };
+  const windows = [mainWindow, sidePlayerWindow].filter(Boolean);
+  for (const window of new Set(windows)) {
+    if (!window.isDestroyed() && window.webContents !== sender) {
+      window.webContents.send('lyrics-local-updated', payload);
+    }
+  }
+}
+
+async function importLocalLyrics(event, rawTrack) {
+  const lookup = normalizeLyricsLookup(rawTrack);
+  if (IS_SMOKE_TEST) {
+    return createImportedLyricsRecord(rawTrack, '[00:01.00] Local smoke lyric\n[00:04.00] Still stored on this device', 'smoke.lrc');
+  }
+
+  const parentWindow = BrowserWindow.fromWebContents(event.sender);
+  const existing = await readLocalLyrics(lookup);
+  if (existing) {
+    const choice = await dialog.showMessageBox(parentWindow, {
+      type: 'question',
+      title: 'Local lyrics',
+      message: `Local lyrics are already saved for “${lookup.trackName}”.`,
+      detail: 'Replace the saved file, or remove it and return to LRCLIB matching.',
+      buttons: ['Replace file', 'Use LRCLIB instead', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true
+    });
+    if (choice.response === 2) return { canceled: true };
+    if (choice.response === 1) {
+      await removeLocalLyrics(lookup);
+      publishLocalLyricsUpdate(event.sender, lookup, 'removed');
+      return { removed: true, cacheKey: lookup.cacheKey };
+    }
+  }
+
+  const selection = await dialog.showOpenDialog(parentWindow, {
+    title: `Choose lyrics for ${lookup.trackName}`,
+    properties: ['openFile'],
+    filters: [
+      { name: 'Lyrics files', extensions: ['lrc', 'txt'] },
+      { name: 'LRC synced lyrics', extensions: ['lrc'] },
+      { name: 'Plain text lyrics', extensions: ['txt'] }
+    ]
+  });
+  if (selection.canceled || !selection.filePaths?.[0]) return { canceled: true };
+
+  const selectedPath = path.resolve(selection.filePaths[0]);
+  if (!/\.(?:lrc|txt)$/i.test(selectedPath)) throw new Error('Choose a .lrc or .txt lyrics file.');
+  const fileInfo = await fs.promises.stat(selectedPath);
+  if (!fileInfo.isFile()) throw new Error('The selected lyrics path is not a regular file.');
+  if (fileInfo.size > LOCAL_LYRICS_MAX_BYTES) throw new Error('Lyrics files must be 256 KB or smaller.');
+  const text = await fs.promises.readFile(selectedPath, 'utf8');
+  const record = createImportedLyricsRecord(rawTrack, text, path.basename(selectedPath));
+  await writeLocalLyrics(lookup, record);
+  lyricsCache.delete(lookup.cacheKey);
+  publishLocalLyricsUpdate(event.sender, lookup, 'imported');
+  return record;
+}
+
 async function getLyricsForTrack(rawTrack, force = false) {
   const lookup = normalizeLyricsLookup(rawTrack);
-  const cached = lyricsCache.get(lookup.cacheKey);
-  if (cached && cached.expiresAt > Date.now() && (!force || cached.value?.found)) {
-    lyricsCache.delete(lookup.cacheKey);
-    lyricsCache.set(lookup.cacheKey, cached);
-    return cached.value;
-  }
-  if (cached) lyricsCache.delete(lookup.cacheKey);
-
   if (IS_SMOKE_TEST) {
     return {
       found: true,
@@ -973,27 +1082,77 @@ async function getLyricsForTrack(rawTrack, force = false) {
         albumName: lookup.albumName,
         duration: lookup.durationSeconds || 180,
         plainLyrics: 'Steam curls over the morning light\nA quiet song is brewing',
-        syncedLyrics: '[00:01.00] Steam curls over the morning light\n[00:04.50] A quiet song is brewing'
+        syncedLyrics: '[00:01.00] Steam curls over the morning light\n[00:04.50] A quiet song is brewing',
+        source: 'lrclib',
+        matchType: 'exact',
+        matchScore: 1
       })
     };
   }
+  const localRecord = await readLocalLyrics(lookup);
+  if (localRecord) return localRecord;
+  const cached = lyricsCache.get(lookup.cacheKey);
+  if (cached && cached.expiresAt > Date.now() && !force) {
+    lyricsCache.delete(lookup.cacheKey);
+    lyricsCache.set(lookup.cacheKey, cached);
+    return cached.value;
+  }
+  if (cached) lyricsCache.delete(lookup.cacheKey);
 
-  const url = new URL(LRCLIB_API_URL);
-  url.searchParams.set('track_name', lookup.trackName);
-  url.searchParams.set('artist_name', lookup.artistName);
-  if (lookup.albumName) url.searchParams.set('album_name', lookup.albumName);
-  if (lookup.durationSeconds) url.searchParams.set('duration', String(lookup.durationSeconds));
-  const response = await fetchLrclibJson(url);
-  if (response.status === 'rate_limited') {
-    return { found: false, status: 'rate_limited', retryAfter: response.retryAfter };
+  const exactUrl = new URL(LRCLIB_GET_URL);
+  exactUrl.searchParams.set('track_name', lookup.trackName);
+  exactUrl.searchParams.set('artist_name', lookup.artistName);
+  if (lookup.albumName) exactUrl.searchParams.set('album_name', lookup.albumName);
+  if (lookup.durationSeconds) exactUrl.searchParams.set('duration', String(lookup.durationSeconds));
+  const exactResponse = await fetchLrclibJson(exactUrl);
+  if (exactResponse.status === 'rate_limited') {
+    return { found: false, status: 'rate_limited', retryAfter: exactResponse.retryAfter };
   }
-  if (response.status === 'not_found') {
-    return rememberLyrics(lookup.cacheKey, { found: false, status: 'not_found' }, 5 * 60 * 1000);
+
+  let best = exactResponse.status === 'found' ? scoreLyricsCandidate(lookup, exactResponse.data) : null;
+  let bestMatchType = 'exact';
+  if (best?.score >= 0.94) {
+    return rememberLyrics(lookup.cacheKey, finalizeLyricsMatch(lookup, best, 'exact'), 60 * 60 * 1000);
   }
-  return rememberLyrics(lookup.cacheKey, {
-    found: true,
-    ...sanitizeLyricsRecord(response.data)
-  }, 60 * 60 * 1000);
+
+  let lastSearchError = null;
+  let completedSearches = 0;
+  for (const query of buildLyricsSearchQueries(lookup)) {
+    const searchUrl = new URL(LRCLIB_SEARCH_URL);
+    if (query.q) searchUrl.searchParams.set('q', query.q);
+    else {
+      searchUrl.searchParams.set('track_name', query.trackName);
+      searchUrl.searchParams.set('artist_name', query.artistName);
+    }
+    let searchResponse;
+    try {
+      searchResponse = await fetchLrclibJson(searchUrl, LRCLIB_SEARCH_RESPONSE_MAX_BYTES);
+    } catch (error) {
+      lastSearchError = error;
+      continue;
+    }
+    if (searchResponse.status === 'rate_limited') {
+      if (!best) return { found: false, status: 'rate_limited', retryAfter: searchResponse.retryAfter };
+      break;
+    }
+    completedSearches += 1;
+    const searchBest = selectBestLyricsCandidate(lookup, searchResponse.data);
+    if (searchBest && (!best || searchBest.score > best.score)) {
+      best = searchBest;
+      bestMatchType = 'expanded';
+    }
+    if (best?.score >= 0.94) break;
+  }
+
+  if (best) {
+    return rememberLyrics(
+      lookup.cacheKey,
+      finalizeLyricsMatch(lookup, best, bestMatchType),
+      60 * 60 * 1000
+    );
+  }
+  if (lastSearchError && completedSearches === 0) throw lastSearchError;
+  return rememberLyrics(lookup.cacheKey, { found: false, status: 'not_found' }, 5 * 60 * 1000);
 }
 
 function queueLyricsLookup(operation) {
@@ -1702,7 +1861,14 @@ async function runSmokeTest() {
           album: 'Morning Blend',
           durationMs: 180000
         });
+        const localLyricsPayload = await window.cozyApi.lyrics.importLocal({
+          title: 'Smoke Test Song',
+          artist: 'Cozy-Fi',
+          album: 'Morning Blend',
+          durationMs: 180000
+        });
         const lyricsModel = window.CozyLyrics?.buildLyricsModel(lyricsPayload);
+        const localLyricsModel = window.CozyLyrics?.buildLyricsModel(localLyricsPayload);
         const lyricsTab = document.getElementById('player-lyrics-tab');
         const artworkTab = document.getElementById('player-now-playing-tab');
         lyricsTab.click();
@@ -1731,6 +1897,12 @@ async function runSmokeTest() {
             lyricsModel?.kind === 'synced' &&
             lyricsModel.lines?.length === 2 &&
             window.CozyLyrics.findActiveLineIndex(lyricsModel.lines, 4600) === 1
+          ),
+          localLyricsApi: Boolean(
+            localLyricsModel?.kind === 'synced' &&
+            localLyricsModel.record?.source === 'local' &&
+            localLyricsModel.lines?.length === 2 &&
+            document.getElementById('lyrics-import-button')
           ),
           lyricsTab: Boolean(
             lyricsTabSwitches &&
@@ -1905,7 +2077,7 @@ async function runSmokeTest() {
           title: document.title === 'Cozy-Fi Side Player',
           api: Boolean(window.cozyApi?.sidePlayer),
           loaded: !document.body.classList.contains('is-loading'),
-          controls: ['mini-play', 'mini-previous', 'mini-next', 'mini-progress', 'mini-pin', 'mini-hide', 'mini-cover-tab', 'mini-lyrics-tab']
+          controls: ['mini-play', 'mini-previous', 'mini-next', 'mini-progress', 'mini-pin', 'mini-hide', 'mini-cover-tab', 'mini-lyrics-tab', 'mini-lyrics-import']
             .every(id => Boolean(document.getElementById(id))),
           skeleton: Boolean(document.querySelector('.mini-art-skeleton.ghost') && document.querySelector('.mini-copy-skeleton .ghost')),
           themeSync: getComputedStyle(document.body).getPropertyValue('--bg-primary').trim() === '#f2e9dc' && document.body.classList.contains('font-enlarged'),
@@ -2200,6 +2372,7 @@ function registerIpcHandlers() {
   ipcMain.handle('get-lyrics', (_event, rawTrack, rawOptions) => (
     queueLyricsLookup(() => getLyricsForTrack(rawTrack, Boolean(rawOptions?.force)))
   ));
+  ipcMain.handle('import-local-lyrics', (event, rawTrack) => importLocalLyrics(event, rawTrack));
 
   ipcMain.handle('get-player-state', async () => {
     if (!deviceId || usesExternalPlayback()) return null;

@@ -1157,6 +1157,13 @@ input, textarea {
   font-size: 0.68rem;
 }
 
+.lyrics-card-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
 .lyrics-scroll {
   position: relative;
   flex: 1;

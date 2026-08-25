@@ -358,6 +358,11 @@ input:focus-visible {
   color: var(--button-filled-text);
 }
 
+.mini-lyrics-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .mini-lyrics-scroll,
 .mini-lyrics-message {
   min-width: 0;
