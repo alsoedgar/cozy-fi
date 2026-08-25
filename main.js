@@ -2119,6 +2119,14 @@ async function runSmokeTest() {
       new Promise(resolve => setTimeout(async () => {
         const shell = document.getElementById('mini-window');
         const titlebar = document.querySelector('.mini-titlebar');
+        const waitFor = async (predicate, timeoutMs = 1200) => {
+          const deadline = Date.now() + timeoutMs;
+          while (Date.now() < deadline) {
+            if (predicate()) return true;
+            await new Promise(done => setTimeout(done, 25));
+          }
+          return Boolean(predicate());
+        };
         const headerActionsFit = Array.from(document.querySelectorAll('.mini-window-actions button'))
           .every(button => (
             button.getBoundingClientRect().right <= titlebar.getBoundingClientRect().right + 1 &&
@@ -2137,10 +2145,11 @@ async function runSmokeTest() {
           cover: { style: 'vivid-gradient', start: '#102d6b', end: '#562b68', glow: '#6b4610' },
           options: { style: 'vivid-gradient', mood: 'dark', intensity: 82 }
         });
-        await new Promise(done => setTimeout(done, 40));
-        const coverThemeApplied = document.body.classList.contains('theme-cover-match') &&
+        const coverThemeApplied = await waitFor(() => (
+          document.body.classList.contains('theme-cover-match') &&
           document.body.classList.contains('cover-style-vivid-gradient') &&
-          /^#[0-9a-f]{6}$/i.test(getComputedStyle(document.body).getPropertyValue('--cover-start').trim());
+          /^#[0-9a-f]{6}$/i.test(getComputedStyle(document.body).getPropertyValue('--cover-start').trim())
+        ));
         await window.cozyApi.sidePlayer.syncTheme({
           kind: 'glass',
           fontSize: 'standard',
@@ -2154,11 +2163,19 @@ async function runSmokeTest() {
           },
           options: { style: 'liquid', tone: 'light', opacity: 76, blur: 28 }
         });
-        await new Promise(done => setTimeout(done, 40));
-        const glassThemeApplied = document.body.classList.contains('theme-glass') &&
+        const reducedTransparency = window.matchMedia?.('(prefers-reduced-transparency: reduce)').matches === true;
+        const expectedGlassBlur = reducedTransparency ? '0px' : '28px';
+        const glassThemeApplied = await waitFor(() => (
+          document.body.classList.contains('theme-glass') &&
           document.body.classList.contains('glass-style-liquid') &&
-          getComputedStyle(document.body).getPropertyValue('--glass-blur').trim() === '28px' &&
-          getComputedStyle(document.body).getPropertyValue('--bg-secondary').includes('color-mix');
+          getComputedStyle(document.body).getPropertyValue('--glass-blur').trim() === expectedGlassBlur &&
+          getComputedStyle(document.body).getPropertyValue('--bg-secondary').includes('color-mix')
+        ));
+        const glassThemeState = {
+          className: document.body.className,
+          blur: getComputedStyle(document.body).getPropertyValue('--glass-blur').trim(),
+          reducedTransparency
+        };
         await window.cozyApi.sidePlayer.syncTheme({
           kind: 'custom',
           fontSize: 'enlarged',
@@ -2255,6 +2272,7 @@ async function runSmokeTest() {
             beforeResize,
             requestedResize: resized,
             afterResize,
+            glassThemeState,
             stageBounds: {
               left: stageRect.left, top: stageRect.top, right: stageRect.right,
               bottom: stageRect.bottom, width: stageRect.width, height: stageRect.height
