@@ -1891,8 +1891,15 @@ async function runSmokeTest() {
           coverTab.getAttribute('aria-selected') === 'true';
         const beforeResize = { width: window.outerWidth, height: window.outerHeight };
         const resized = await window.cozyApi.sidePlayer.resizeBy({ width: 24, height: 24 });
-        await new Promise(done => setTimeout(done, 100));
-        const afterResize = { width: window.outerWidth, height: window.outerHeight };
+        const resizeDeadline = Date.now() + 1000;
+        let afterResize = { width: window.outerWidth, height: window.outerHeight };
+        while (
+          (afterResize.width < beforeResize.width + 20 || afterResize.height < beforeResize.height + 20) &&
+          Date.now() < resizeDeadline
+        ) {
+          await new Promise(done => setTimeout(done, 25));
+          afterResize = { width: window.outerWidth, height: window.outerHeight };
+        }
         const rect = shell.getBoundingClientRect();
         const checks = {
           title: document.title === 'Cozy-Fi Side Player',
@@ -1922,7 +1929,11 @@ async function runSmokeTest() {
           fits: rect.left >= -1 && rect.top >= -1 && rect.right <= window.innerWidth + 1 && rect.bottom <= window.innerHeight + 1,
           noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 2 && document.documentElement.scrollHeight <= window.innerHeight + 2
         };
-        resolve({ ok: Object.values(checks).every(Boolean), checks });
+        resolve({
+          ok: Object.values(checks).every(Boolean),
+          checks,
+          metrics: { beforeResize, requestedResize: resized, afterResize }
+        });
       }, 650))
     `, true);
     openFullPlayer();
@@ -1941,6 +1952,7 @@ async function runSmokeTest() {
         fullRestoresAlone: fullOnlyAfterFull
       },
       sidePlayerChecks: sideResult.checks,
+      sidePlayerMetrics: sideResult.metrics,
       compactOpenState
     };
     console.log(`COZY_SMOKE_RESULT ${JSON.stringify(combined)}`);
