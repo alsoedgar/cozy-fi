@@ -1932,7 +1932,19 @@ async function runSmokeTest() {
         resolve({
           ok: Object.values(checks).every(Boolean),
           checks,
-          metrics: { beforeResize, requestedResize: resized, afterResize }
+          metrics: {
+            beforeResize,
+            requestedResize: resized,
+            afterResize,
+            stageBounds: {
+              left: stageRect.left, top: stageRect.top, right: stageRect.right,
+              bottom: stageRect.bottom, width: stageRect.width, height: stageRect.height
+            },
+            lyricsBounds: {
+              left: lyricsRect.left, top: lyricsRect.top, right: lyricsRect.right,
+              bottom: lyricsRect.bottom, width: lyricsRect.width, height: lyricsRect.height
+            }
+          }
         });
       }, 650))
     `, true);
