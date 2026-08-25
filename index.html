@@ -154,11 +154,45 @@
 
       <!-- 4. PLAYER VIEW -->
       <main class="main-view" id="view-player">
-        <div class="player-view-container">
-          <div class="player-large-art-container" id="player-view-art-container"></div>
-          <h2 class="player-large-title" id="player-view-title">Track Title</h2>
-          <div class="player-large-artist" id="player-view-artist">Artist Name • Album</div>
+        <div class="player-view-tabs-shell">
+          <div class="player-view-tabs" role="tablist" aria-label="Full player view">
+            <button class="player-view-tab active" id="player-now-playing-tab" type="button" role="tab" aria-selected="true" aria-controls="player-now-playing-panel">NOW PLAYING</button>
+            <button class="player-view-tab" id="player-lyrics-tab" type="button" role="tab" aria-selected="false" aria-controls="player-lyrics-panel" tabindex="-1">
+              LYRICS <span class="lyrics-tab-badge" id="lyrics-tab-badge" data-state="idle">WAITING</span>
+            </button>
+          </div>
+          <span class="player-view-tab-note">LRCLIB · FREE · NO API KEY</span>
         </div>
+        <section class="player-tab-panel" id="player-now-playing-panel" role="tabpanel" aria-labelledby="player-now-playing-tab">
+          <div class="player-view-container">
+            <div class="player-large-art-container" id="player-view-art-container"></div>
+            <h2 class="player-large-title" id="player-view-title">Track Title</h2>
+            <div class="player-large-artist" id="player-view-artist">Artist Name • Album</div>
+          </div>
+        </section>
+        <section class="player-tab-panel lyrics-panel" id="player-lyrics-panel" role="tabpanel" aria-labelledby="player-lyrics-tab" hidden>
+          <article class="lyrics-card retro-border">
+            <header class="lyrics-card-header">
+              <div class="lyrics-track-copy">
+                <span class="lyrics-eyebrow">NOW SINGING</span>
+                <h2 id="lyrics-track-title">Lyrics</h2>
+                <p id="lyrics-track-artist">Select a song to begin</p>
+              </div>
+              <div class="lyrics-card-actions">
+                <span class="lyrics-mode-label" id="lyrics-mode-label">LRCLIB · OPTIONAL LOOKUP</span>
+                <button class="retro-button lyrics-follow-button" id="lyrics-follow-button" type="button" hidden>FOLLOW</button>
+              </div>
+            </header>
+            <div class="lyrics-scroll" id="lyrics-scroll" tabindex="0" aria-label="Song lyrics"></div>
+            <div class="lyrics-message" id="lyrics-message" role="status">
+              <span class="lyrics-message-icon" aria-hidden="true">♪</span>
+              <h3 id="lyrics-message-title">Choose a song first.</h3>
+              <p id="lyrics-message-description">Play a Spotify track, then return here for available lyrics.</p>
+              <button class="retro-button" id="lyrics-retry-button" type="button" hidden>TRY AGAIN</button>
+            </div>
+            <footer class="lyrics-card-footer">Lyrics are requested from LRCLIB only when this tab is opened and are cached in memory for this app session.</footer>
+          </article>
+        </section>
       </main>
 
       <!-- 5. SETTINGS VIEW -->
@@ -352,6 +386,7 @@
   <script src="js/render.js"></script>
   <script src="js/search.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/lyrics.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

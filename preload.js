@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('cozyApi', {
     connect: clientId => ipcRenderer.invoke('spotify-login', clientId),
     disconnect: () => ipcRenderer.invoke('spotify-logout')
   },
+  lyrics: {
+    get: (track, options) => ipcRenderer.invoke('get-lyrics', track, options)
+  },
   spotify: {
     getProfile: () => ipcRenderer.invoke('get-profile'),
     getPlaylists: () => ipcRenderer.invoke('get-playlists'),

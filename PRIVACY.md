@@ -1,6 +1,6 @@
 # Cozy-Fi Privacy Notice
 
-Last updated: August 23, 2026
+Last updated: August 25, 2026
 
 Cozy-Fi is a local desktop application. It does not operate a Cozy-Fi server and does not sell or share personal data.
 
@@ -11,6 +11,8 @@ The app stores your Spotify Developer Client ID and playback-mode preference in 
 On first use, the local playback engine performs its own interactive Spotify authorization with only the `streaming` scope. Librespot writes the resulting reusable player credential under Cozy-Fi's per-user application-data directory so playback can start later without Spotify or a browser open. Librespot does not encrypt this cache file itself. Cozy-Fi deletes it when you select **DISCONNECT**.
 
 Cozy-Fi temporarily holds Spotify metadata and artwork in memory while the app is open. It does not create a separate analytics database or transmit that information to the project author.
+
+Lyrics are optional. Only when you open the **LYRICS** tab for a selected song, Cozy-Fi sends the song title, artist, album, and duration from the Electron main process to [LRCLIB](https://lrclib.net/docs) to look for a match. It does not send LRCLIB your Spotify access or refresh tokens, Spotify profile/account identifier, local-player credential, or Spotify Developer Client ID. Successful results are cached in memory for up to one hour and unavailable results for up to five minutes; both caches disappear when the app exits. LRCLIB is an independent external service and may receive ordinary network request information such as your IP address under its own policies. If you do not open the Lyrics tab, Cozy-Fi does not make an LRCLIB request for that song.
 
 Select **DISCONNECT** in Settings to delete the locally retained Spotify refresh token and local-player credential, stop playback, and stop further Spotify requests. You may also revoke access from your Spotify account/app settings.
 

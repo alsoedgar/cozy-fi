@@ -1,6 +1,6 @@
 # Cozy-Fi
 
-Cozy-Fi is a cross-platform, retro-cozy desktop companion player for Spotify Premium. The same Electron interface and feature set run on Windows, macOS, and Linux, including Spotify search, saved music, playlists, artists, queue controls, liking, playlist creation, a native local Spotify Connect output, compact layouts, the dockable side player, loading skeletons, pagination, and custom palettes.
+Cozy-Fi is a cross-platform, retro-cozy desktop companion player for Spotify Premium. The same Electron interface and feature set run on Windows, macOS, and Linux, including Spotify search, saved music, playlists, artists, queue controls, liking, playlist creation, optional LRCLIB lyrics, a native local Spotify Connect output, compact layouts, the dockable side player, loading skeletons, pagination, and custom palettes.
 
 This project is intended for personal use and source-code learning. It is not affiliated with, endorsed by, or a replacement for Spotify. Spotify's Developer Policy requires integrations to add independent value and prohibits unapproved apps from replicating or replacing Spotify's core experience.
 
@@ -23,6 +23,7 @@ Cozy-Fi gives a Premium listener a focused, customizable desktop interface for t
 - Play through Cozy-Fi's local Spotify Connect output on Premium accounts, or use Spotify-link mode as a fallback.
 - Select any playlist or album song and keep its list order for automatic advance and previous/next navigation.
 - Control play/pause, seeking, volume, queue, likes, and playlist creation.
+- Open an optional lyrics tab with synchronized line highlighting when LRCLIB has timed lyrics, or a scrollable reading view when only plain lyrics are available.
 - Switch between the full responsive app and a resizable, pinnable side player.
 - Use Morning Lo-Fi or Soft Sunset, enlarge the typography, or create and save custom seven-color palettes.
 - Keep long libraries and result sets manageable with loading skeletons and pagination.
@@ -78,6 +79,17 @@ Settings includes three playback choices:
 - **Cozy-Fi standalone** explicitly requests the same Premium-only local-player behavior.
 - **Spotify app / browser** does not start the local player. Selecting a track or context opens it in Spotify, and transport/queue controls remain there.
 
+## Lyrics
+
+Open the full player and select **LYRICS**. Cozy-Fi uses [LRCLIB](https://lrclib.net/docs), which is free to access and does not require an API key or a separate user account.
+
+- A synchronized result follows playback, centers the current line, and marks it with a high-contrast **NOW** treatment. Scroll manually at any time; select **FOLLOW** to return to the current line.
+- A plain result remains fully scrollable when timing data is unavailable.
+- Instrumental, unavailable, loading, retry, and rate-limit states stay inside the themed player instead of opening another app.
+- Automatic line following uses Cozy-Fi's local playback clock in standalone mode. Spotify App mode keeps synchronized lyrics available for manual scrolling because playback timing remains controlled by Spotify.
+
+Lyrics are optional and are fetched only after the Lyrics tab is opened for a selected track. Cozy-Fi sends LRCLIB the song title, artist, album, and duration needed to find a match; it does not send Spotify tokens, the user's Spotify profile, or the Spotify Client ID. Results are kept only in memory for the current app session. Availability and timing depend on LRCLIB's community database, so some tracks will not have lyrics.
+
 ## Side player
 
 Open **MENU → Side Player** to switch into the compact player; the full window hides so only the side player remains. Its live Spotify artwork, timeline, play/pause, previous, and next controls use the same playback session as the full app. Drag the lower-right grip to resize it, or focus the grip and use the arrow keys. **PIN** toggles always-on-top, **FULL** (or a title-bar double-click) hides the compact window and restores the full app, and **HIDE** minimizes the side player so it can be restored from the taskbar or dock. Its size and screen position are remembered.
@@ -106,7 +118,7 @@ npm start
 
 `npm run build:librespot` builds the pinned, patched playback engine for the current operating system and CPU architecture, records its SHA-256 in `librespot-checksums.json`, and marks it executable on macOS/Linux. Native playback binaries cannot be safely cross-compiled by the packaging command: each package must be created on a matching host.
 
-`npm test` runs JavaScript syntax checks and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
+`npm test` runs JavaScript syntax checks, playback-context and LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the lyrics IPC/tab/scrolling path, side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
 
 To create and verify an unpacked build for the current host and architecture:
 
@@ -148,6 +160,7 @@ The generated folders are unsigned, unpacked personal builds rather than install
 - Electron runs with renderer sandboxing, context isolation, no Node integration, and a narrow preload API.
 - Spotify OAuth uses PKCE plus a random state value and an exact loopback callback.
 - User-controlled Spotify metadata is escaped or written with `textContent` before display.
+- LRCLIB requests are made only from the sandboxed app's main process after the Lyrics tab is opened. They contain track matching metadata, never Spotify credentials, and their results are cached only in memory.
 - Disconnecting deletes the locally retained Spotify refresh token and local-player credential, then stops the playback process.
 - The local-player credential is written by librespot under Electron's per-user application-data directory. It is not passed on the command line and is removed by **DISCONNECT**, but librespot does not encrypt that cache file itself. Protect your operating-system account and do not share the app-data folder.
 - On Linux, Cozy-Fi refuses to persist the Web API refresh token when Electron only offers the insecure `basic_text` backend. Install and unlock a supported Secret Service/KWallet keyring for persistent sign-in; otherwise the token stays memory-only for that run.
@@ -155,4 +168,4 @@ The generated folders are unsigned, unpacked personal builds rather than install
 
 ## License
 
-Cozy-Fi source code is available under the [MIT License](LICENSE). Native `librespot` binaries, Spotify content, Spotify marks, album artwork, and metadata are governed by their own licenses and terms and are not relicensed by this repository. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the bundled playback engine's version, license, source revision, and checksum manifest.
+Cozy-Fi source code is available under the [MIT License](LICENSE). Native `librespot` binaries, Spotify content, Spotify marks, album artwork, metadata, and lyrics are governed by their own licenses and terms and are not relicensed by this repository. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for playback-engine details and the external lyrics-service notice.

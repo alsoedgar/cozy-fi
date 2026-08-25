@@ -8,6 +8,7 @@ const { pathToFileURL } = require('url');
 const { spawn } = require('child_process');
 const librespotManifest = require('./librespot-checksums.json');
 const { normalizeContextOffset } = require('./js/playback-context');
+const { normalizeLyricsLookup, sanitizeLyricsRecord } = require('./js/lyrics');
 
 const SPOTIFY_API_BASE = 'https://api.spotify.com/';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -26,6 +27,11 @@ const SIDE_PLAYER_MAX_WIDTH = 700;
 const SIDE_PLAYER_MAX_HEIGHT = 1000;
 const SIDE_PLAYER_ARTWORK_MAX_BYTES = 3 * 1024 * 1024;
 const SIDE_PLAYER_ARTWORK_CACHE_LIMIT = 16;
+const LRCLIB_API_URL = 'https://lrclib.net/api/get';
+const LRCLIB_CLIENT_HOMEPAGE = 'https://github.com/alsoedgar/cozy-fi';
+const LRCLIB_MIN_REQUEST_INTERVAL_MS = 350;
+const LRCLIB_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+const LYRICS_CACHE_LIMIT = 100;
 
 let mainWindow = null;
 let sidePlayerWindow = null;
@@ -62,6 +68,10 @@ let sidePlayerSnapshot = null;
 let sidePlayerModeActive = false;
 let sidePlayerResizeSession = null;
 const sidePlayerArtworkCache = new Map();
+const lyricsCache = new Map();
+let lyricsRequestChain = Promise.resolve();
+let lyricsLastRequestAt = 0;
+let lyricsBlockedUntil = 0;
 
 const configPath = path.join(app.getPath('userData'), 'cozy-fi-config.json');
 const playbackCachePath = path.join(app.getPath('userData'), 'librespot');
@@ -837,6 +847,161 @@ async function fetchAllPages(endpoint, getItems, maximum = MAX_LIBRARY_ITEMS) {
   return results.slice(0, maximum);
 }
 
+function parseRetryAfterSeconds(value) {
+  const numeric = Number.parseInt(value, 10);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.min(3600, numeric);
+  const retryDate = Date.parse(value || '');
+  if (Number.isFinite(retryDate)) return Math.min(3600, Math.max(1, Math.ceil((retryDate - Date.now()) / 1000)));
+  return 30;
+}
+
+async function readLimitedResponseText(response, maximumBytes) {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error('LRCLIB returned an unexpectedly large response.');
+  }
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > maximumBytes) {
+      throw new Error('LRCLIB returned an unexpectedly large response.');
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maximumBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error('LRCLIB returned an unexpectedly large response.');
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, receivedBytes).toString('utf8');
+}
+
+async function fetchLrclibJson(url) {
+  if (!(url instanceof URL) || url.origin !== 'https://lrclib.net') {
+    throw new Error('Blocked an unexpected lyrics service URL.');
+  }
+  if (Date.now() < lyricsBlockedUntil) {
+    return {
+      status: 'rate_limited',
+      retryAfter: Math.max(1, Math.ceil((lyricsBlockedUntil - Date.now()) / 1000))
+    };
+  }
+  const requestDelay = Math.max(0, LRCLIB_MIN_REQUEST_INTERVAL_MS - (Date.now() - lyricsLastRequestAt));
+  if (requestDelay > 0) await new Promise(resolve => setTimeout(resolve, requestDelay));
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  timeout.unref?.();
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': `Cozy-Fi/${app.getVersion()} (${LRCLIB_CLIENT_HOMEPAGE})`
+      },
+      redirect: 'error',
+      signal: controller.signal
+    });
+    if (response.status === 404) {
+      await response.body?.cancel().catch(() => undefined);
+      return { status: 'not_found' };
+    }
+    if (response.status === 429) {
+      const retryAfter = parseRetryAfterSeconds(response.headers.get('retry-after'));
+      lyricsBlockedUntil = Date.now() + (retryAfter * 1000);
+      await response.body?.cancel().catch(() => undefined);
+      return { status: 'rate_limited', retryAfter };
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`LRCLIB returned HTTP ${response.status}.`);
+    }
+    const text = await readLimitedResponseText(response, LRCLIB_RESPONSE_MAX_BYTES);
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('LRCLIB returned an unreadable response.');
+    }
+    return { status: 'found', data };
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('The LRCLIB lyrics request timed out.');
+    if (/^(?:The )?LRCLIB\b/.test(error?.message || '')) throw error;
+    throw new Error(`Could not reach LRCLIB: ${error?.message || 'network error'}`);
+  } finally {
+    clearTimeout(timeout);
+    lyricsLastRequestAt = Date.now();
+  }
+}
+
+function rememberLyrics(cacheKey, value, lifetimeMs) {
+  if (lyricsCache.has(cacheKey)) lyricsCache.delete(cacheKey);
+  while (lyricsCache.size >= LYRICS_CACHE_LIMIT) lyricsCache.delete(lyricsCache.keys().next().value);
+  lyricsCache.set(cacheKey, { value, expiresAt: Date.now() + lifetimeMs });
+  return value;
+}
+
+async function getLyricsForTrack(rawTrack, force = false) {
+  const lookup = normalizeLyricsLookup(rawTrack);
+  const cached = lyricsCache.get(lookup.cacheKey);
+  if (cached && cached.expiresAt > Date.now() && (!force || cached.value?.found)) {
+    lyricsCache.delete(lookup.cacheKey);
+    lyricsCache.set(lookup.cacheKey, cached);
+    return cached.value;
+  }
+  if (cached) lyricsCache.delete(lookup.cacheKey);
+
+  if (IS_SMOKE_TEST) {
+    return {
+      found: true,
+      ...sanitizeLyricsRecord({
+        id: 1,
+        trackName: lookup.trackName,
+        artistName: lookup.artistName,
+        albumName: lookup.albumName,
+        duration: lookup.durationSeconds || 180,
+        plainLyrics: 'Steam curls over the morning light\nA quiet song is brewing',
+        syncedLyrics: '[00:01.00] Steam curls over the morning light\n[00:04.50] A quiet song is brewing'
+      })
+    };
+  }
+
+  const url = new URL(LRCLIB_API_URL);
+  url.searchParams.set('track_name', lookup.trackName);
+  url.searchParams.set('artist_name', lookup.artistName);
+  if (lookup.albumName) url.searchParams.set('album_name', lookup.albumName);
+  if (lookup.durationSeconds) url.searchParams.set('duration', String(lookup.durationSeconds));
+  const response = await fetchLrclibJson(url);
+  if (response.status === 'rate_limited') {
+    return { found: false, status: 'rate_limited', retryAfter: response.retryAfter };
+  }
+  if (response.status === 'not_found') {
+    return rememberLyrics(lookup.cacheKey, { found: false, status: 'not_found' }, 5 * 60 * 1000);
+  }
+  return rememberLyrics(lookup.cacheKey, {
+    found: true,
+    ...sanitizeLyricsRecord(response.data)
+  }, 60 * 60 * 1000);
+}
+
+function queueLyricsLookup(operation) {
+  const result = lyricsRequestChain.then(operation, operation);
+  lyricsRequestChain = result.catch(() => undefined);
+  return result;
+}
+
 function closeAuthResources() {
   if (authFlow && !authFlow.completed && !authFlow.canceled) {
     authFlow.canceled = true;
@@ -1531,6 +1696,20 @@ async function runSmokeTest() {
           playbackContextUri: 'spotify:playlist:smokePlaylist',
           playbackContextPosition: 3
         }, [], 0);
+        const lyricsPayload = await window.cozyApi.lyrics.get({
+          title: 'Smoke Test Song',
+          artist: 'Cozy-Fi',
+          album: 'Morning Blend',
+          durationMs: 180000
+        });
+        const lyricsModel = window.CozyLyrics?.buildLyricsModel(lyricsPayload);
+        const lyricsTab = document.getElementById('player-lyrics-tab');
+        const artworkTab = document.getElementById('player-now-playing-tab');
+        lyricsTab.click();
+        const lyricsTabSwitches = !document.getElementById('player-lyrics-panel').hidden &&
+          document.getElementById('player-now-playing-panel').hidden &&
+          lyricsTab.getAttribute('aria-selected') === 'true';
+        artworkTab.click();
         const checks = {
           title: document.title === 'Cozy-Fi',
           api: Boolean(window.cozyApi),
@@ -1547,6 +1726,17 @@ async function runSmokeTest() {
             playbackContextRequest.contextUri === 'spotify:playlist:smokePlaylist' &&
             playbackContextRequest.offset?.position === 3 &&
             playbackContextRequest.offset?.uri === 'spotify:track:smokeTrack'
+          ),
+          lyricsApi: Boolean(
+            lyricsModel?.kind === 'synced' &&
+            lyricsModel.lines?.length === 2 &&
+            window.CozyLyrics.findActiveLineIndex(lyricsModel.lines, 4600) === 1
+          ),
+          lyricsTab: Boolean(
+            lyricsTabSwitches &&
+            !document.getElementById('player-now-playing-panel').hidden &&
+            document.getElementById('player-lyrics-panel').hidden &&
+            getComputedStyle(document.getElementById('lyrics-scroll')).overflowY === 'auto'
           ),
           contentAbovePlayer: document.querySelector('.app-container').getBoundingClientRect().bottom <= document.querySelector('.player-bar').getBoundingClientRect().top + 1,
           compactHome: viewFits('home'),
@@ -1942,6 +2132,9 @@ function registerIpcHandlers() {
     return fetchWebApi('v1/me/playlists', 'POST', { name, public: false, description: 'Created with Cozy-Fi' });
   });
   ipcMain.handle('open-spotify-link', (_event, rawUrl) => shell.openExternal(normalizeSpotifyExternalUrl(rawUrl)));
+  ipcMain.handle('get-lyrics', (_event, rawTrack, rawOptions) => (
+    queueLyricsLookup(() => getLyricsForTrack(rawTrack, Boolean(rawOptions?.force)))
+  ));
 
   ipcMain.handle('get-player-state', async () => {
     if (!deviceId || usesExternalPlayback()) return null;

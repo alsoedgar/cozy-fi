@@ -61,7 +61,7 @@ function sha256(filePath) {
   }
   for (const required of [
     '/main.js', '/preload.js', '/mini-player.html', '/mini-player.css',
-    '/js/mini-player.js', '/js/playback-context.js', '/librespot-checksums.json', '/README.md',
+    '/js/mini-player.js', '/js/playback-context.js', '/js/lyrics.js', '/librespot-checksums.json', '/README.md',
     '/PRIVACY.md', '/THIRD_PARTY_NOTICES.md'
   ]) {
     assert(entries.includes(required), `Required packaged file missing: ${required}`);

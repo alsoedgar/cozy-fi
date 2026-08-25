@@ -6,6 +6,7 @@ const ThemeManagerClass = window.ThemeManager;
 const RenderEngineClass = window.RenderEngine;
 const SearchManagerClass = window.SearchManager;
 const UIManagerClass = window.UIManager;
+const LyricsControllerClass = window.CozyLyrics.LyricsController;
 
 document.addEventListener('DOMContentLoaded', () => {
   localStorage.removeItem('spotify_access_token');
@@ -14,6 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const audio = new AudioEngineClass();
   const spotify = new SpotifyClientClass();
   let currentDisplayedTrack = null;
+  let currentSpotifyPosition = 0;
+  let currentSpotifyDuration = 0;
+  let isSpotifyPlaying = false;
+  let lastSpotifyTrackId = null;
   let playbackAuthorizationPending = false;
   const playbackAuthorizationMessage = 'Complete the one-time local-player authorization in the Cozy-Fi window. Spotify does not need to be open afterward.';
 
@@ -122,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const router = new RouterClass(navItems, mainViews, headerBar, (viewId) => {
     if (viewId === 'player') {
       updatePlayerView(currentDisplayedTrack || audio.getCurrentTrack());
+      lyricsController.onPlayerViewVisible();
     }
     // Collapse sidebar automatically on page transition (mobile/desktop responsive feel)
     setSidebarExpanded(false);
@@ -197,6 +203,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveThemeBtn = document.getElementById('save-theme-btn');
   const typoRows = document.querySelectorAll('.typo-option-row');
   new ThemeManagerClass(themeBoxes, saveThemeBtn, typoRows);
+
+  const lyricsController = new LyricsControllerClass(window.cozyApi?.lyrics, {
+    artworkTab: document.getElementById('player-now-playing-tab'),
+    lyricsTab: document.getElementById('player-lyrics-tab'),
+    artworkPanel: document.getElementById('player-now-playing-panel'),
+    lyricsPanel: document.getElementById('player-lyrics-panel'),
+    badge: document.getElementById('lyrics-tab-badge'),
+    trackTitle: document.getElementById('lyrics-track-title'),
+    trackArtist: document.getElementById('lyrics-track-artist'),
+    modeLabel: document.getElementById('lyrics-mode-label'),
+    scroller: document.getElementById('lyrics-scroll'),
+    message: document.getElementById('lyrics-message'),
+    messageTitle: document.getElementById('lyrics-message-title'),
+    messageDescription: document.getElementById('lyrics-message-description'),
+    retryButton: document.getElementById('lyrics-retry-button'),
+    followButton: document.getElementById('lyrics-follow-button')
+  }, {
+    getPosition: () => currentSpotifyPosition,
+    canSync: () => spotify.isStandalonePlayback,
+    isPlayerViewVisible: () => document.getElementById('view-player')?.classList.contains('active')
+  });
 
   // 4. Initialize Renderer
   const recentListEl = document.getElementById('recent-sessions-list');
@@ -366,10 +393,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let playbackPollTimer;
   let spotifyStateInterval;
   let playbackPollGeneration = 0;
-  let currentSpotifyPosition = 0;
-  let currentSpotifyDuration = 0;
-  let isSpotifyPlaying = false;
-  let lastSpotifyTrackId = null;
   let sidePlayerSnapshotTimer = null;
 
   function syncSidePlayerSnapshot(immediate = false) {
@@ -460,6 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
           artist: artistNames || currentTrack.show?.publisher || currentTrack.show?.name || 'Spotify',
           album: albumOrShow?.name || (currentTrack.type === 'episode' ? 'Podcast' : 'Single'),
           cover: coverImages[0]?.url || previousCover || null,
+          durationMs: currentTrack.duration_ms || 0,
           spotifyUri: currentTrack.uri,
           spotifyUrl: currentTrack.external_urls?.spotify || null,
           spotifyType: currentTrack.type || 'track',
@@ -534,6 +558,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (timelineThumb) timelineThumb.style.left = '0%';
       document.getElementById('timeline-slider')?.setAttribute('aria-valuenow', '0');
     }
+    lyricsController.updatePosition(posMs, spotify.isStandalonePlayback);
     syncSidePlayerSnapshot();
   }
 
@@ -808,6 +833,7 @@ document.addEventListener('DOMContentLoaded', () => {
       renderCover('player-view-art-container', track.cover, track.title, 'player-large-art');
       viewTitle.textContent = track.title;
       viewArtist.textContent = `${track.artist} • ${track.album}`;
+      lyricsController.setTrack(track);
     }
   }
 
@@ -828,6 +854,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderCover('player-bar-art-container', null, 'Track', 'player-album-art');
     renderCover('player-view-art-container', null, 'Track', 'player-large-art');
     renderCover('daily-brew-cover-container', null, 'Track', 'daily-brew-img');
+    lyricsController.setTrack(null);
     syncSidePlayerSnapshot(true);
   }
 
