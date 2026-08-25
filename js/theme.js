@@ -10,6 +10,7 @@ class ThemeManager {
     this.typoRows = Array.from(typoRows || []);
     this.storageKey = 'cozy_custom_palettes_v1';
     this.coverStorageKey = 'cozy_cover_theme_v1';
+    this.glassStorageKey = 'cozy_glass_theme_v1';
     this.maxCustomPalettes = 8;
     this.defaultCustomPalette = {
       bgPrimary: '#f7f0e3',
@@ -33,6 +34,14 @@ class ThemeManager {
     this.coverIntensityInput = document.getElementById('cover-theme-intensity');
     this.coverIntensityOutput = document.getElementById('cover-theme-intensity-output');
     this.coverFeedbackEl = document.getElementById('cover-theme-feedback');
+    this.glassEditor = document.getElementById('glass-theme-editor');
+    this.glassStyleSelect = document.getElementById('glass-theme-style');
+    this.glassToneSelect = document.getElementById('glass-theme-tone');
+    this.glassOpacityInput = document.getElementById('glass-theme-opacity');
+    this.glassOpacityOutput = document.getElementById('glass-theme-opacity-output');
+    this.glassBlurInput = document.getElementById('glass-theme-blur');
+    this.glassBlurOutput = document.getElementById('glass-theme-blur-output');
+    this.glassFeedbackEl = document.getElementById('glass-theme-feedback');
     this.customPalettes = this.loadCustomPalettes();
     this.activeTheme = localStorage.getItem('cozy_theme') || 'morning-lo-fi';
     this.activeCustomId = this.activeTheme.startsWith('custom:') ? this.activeTheme.slice(7) : null;
@@ -40,14 +49,17 @@ class ThemeManager {
     this.activeFontSize = localStorage.getItem('cozy_font_size') || 'standard';
     this.draftPalette = { ...this.defaultCustomPalette };
     this.coverOptions = this.loadCoverOptions();
+    this.glassOptions = this.loadGlassOptions();
     this.coverSourceColors = { ...CoverThemeModule.DEFAULT_SOURCE_COLORS };
     this.coverPalette = CoverThemeModule.buildCoverThemePalette(this.coverSourceColors, this.coverOptions);
+    this.glassPalette = CoverThemeModule.buildGlassThemePalette(this.coverSourceColors, this.glassOptions);
+    this.glassSupport = null;
     this.currentArtworkUrl = '';
     this.currentArtworkKey = '';
     this.coverRequestGeneration = 0;
     this.coverColorCache = new Map();
 
-    if (!['morning-lo-fi', 'soft-sunset', 'custom', 'cover-match'].includes(this.activeTheme)) {
+    if (!['morning-lo-fi', 'soft-sunset', 'custom', 'cover-match', 'glass'].includes(this.activeTheme)) {
       this.activeTheme = 'morning-lo-fi';
     }
 
@@ -120,12 +132,18 @@ class ThemeManager {
     this.deleteCustomThemeBtn?.addEventListener('click', () => this.deleteActiveCustomPalette());
     this.saveThemeBtn?.addEventListener('click', () => this.saveActiveTheme());
     this.initializeCoverOptions();
+    this.initializeGlassOptions();
+    void this.loadGlassSupport();
     this.initializeTypographyOptions();
 
     if (this.activeTheme === 'custom') this.applyCustomPalette(this.draftPalette);
     else if (this.activeTheme === 'cover-match') {
       this.applyCoverPalette();
       void this.refreshCoverTheme();
+    }
+    else if (this.activeTheme === 'glass') {
+      this.applyGlassPalette();
+      if (this.glassOptions.tone === 'cover') void this.refreshCoverTheme();
     }
     else this.applyTheme(this.activeTheme);
     this.applyFontSize(this.activeFontSize);
@@ -134,8 +152,8 @@ class ThemeManager {
   }
 
   selectTheme(theme) {
-    this.activeTheme = ['morning-lo-fi', 'soft-sunset', 'custom', 'cover-match'].includes(theme) ? theme : 'morning-lo-fi';
-    if (this.activeTheme !== 'cover-match') this.coverRequestGeneration += 1;
+    this.activeTheme = ['morning-lo-fi', 'soft-sunset', 'custom', 'cover-match', 'glass'].includes(theme) ? theme : 'morning-lo-fi';
+    if (!this.isArtworkThemeActive()) this.coverRequestGeneration += 1;
     if (this.activeTheme === 'custom') {
       this.customEditor.hidden = false;
       this.applyCustomPalette(this.draftPalette);
@@ -143,6 +161,10 @@ class ThemeManager {
     } else if (this.activeTheme === 'cover-match') {
       this.applyCoverPalette();
       void this.refreshCoverTheme();
+    } else if (this.activeTheme === 'glass') {
+      this.applyGlassPalette();
+      if (this.glassOptions.tone === 'cover') void this.refreshCoverTheme();
+      else this.setGlassFeedback(this.describeGlassSupport('Previewing Cozy Glass.'));
     } else {
       this.customEditor.hidden = true;
       this.applyTheme(this.activeTheme);
@@ -182,6 +204,73 @@ class ThemeManager {
     }
   }
 
+  initializeGlassOptions() {
+    if (this.glassStyleSelect) this.glassStyleSelect.value = this.glassOptions.style;
+    if (this.glassToneSelect) this.glassToneSelect.value = this.glassOptions.tone;
+    if (this.glassOpacityInput) this.glassOpacityInput.value = String(this.glassOptions.opacity);
+    if (this.glassOpacityOutput) this.glassOpacityOutput.textContent = `${this.glassOptions.opacity}%`;
+    if (this.glassBlurInput) this.glassBlurInput.value = String(this.glassOptions.blur);
+    if (this.glassBlurOutput) this.glassBlurOutput.textContent = `${this.glassOptions.blur}px`;
+
+    const updateOptions = () => {
+      this.activeTheme = 'glass';
+      this.coverRequestGeneration += 1;
+      this.glassOptions = CoverThemeModule.normalizeGlassOptions({
+        style: this.glassStyleSelect?.value,
+        tone: this.glassToneSelect?.value,
+        opacity: this.glassOpacityInput?.value,
+        blur: this.glassBlurInput?.value
+      });
+      if (this.glassOpacityOutput) this.glassOpacityOutput.textContent = `${this.glassOptions.opacity}%`;
+      if (this.glassBlurOutput) this.glassBlurOutput.textContent = `${this.glassOptions.blur}px`;
+      this.applyGlassPalette();
+      this.updateThemeBoxesUI();
+      if (this.glassOptions.tone === 'cover') void this.refreshCoverTheme();
+      else this.setGlassFeedback(this.describeGlassSupport('Previewing these glass settings. Choose Save Palette to keep them.'));
+    };
+    this.glassStyleSelect?.addEventListener('change', updateOptions);
+    this.glassToneSelect?.addEventListener('change', updateOptions);
+    this.glassOpacityInput?.addEventListener('input', updateOptions);
+    this.glassBlurInput?.addEventListener('input', updateOptions);
+  }
+
+  loadGlassOptions() {
+    try {
+      return CoverThemeModule.normalizeGlassOptions(JSON.parse(localStorage.getItem(this.glassStorageKey) || '{}'));
+    } catch {
+      return CoverThemeModule.normalizeGlassOptions({});
+    }
+  }
+
+  async loadGlassSupport() {
+    try {
+      const support = await window.cozyApi?.appearance?.getSupport?.();
+      this.glassSupport = support && typeof support === 'object'
+        ? support
+        : { nativeBackdrop: false, label: 'CSS glass fallback' };
+    } catch {
+      this.glassSupport = { nativeBackdrop: false, label: 'CSS glass fallback' };
+    }
+    if (this.activeTheme === 'glass') {
+      this.setGlassFeedback(this.describeGlassSupport(
+        this.glassOptions.tone === 'cover' ? 'Glass colors follow the current song cover.' : 'Cozy Glass is active.'
+      ));
+    }
+  }
+
+  describeGlassSupport(prefix) {
+    const support = this.glassSupport;
+    if (!support) return `${prefix} Checking native backdrop support…`;
+    if (support.nativeBackdrop) return `${prefix} ${support.label} shows a softened view of windows behind Cozy-Fi.`;
+    return `${prefix} ${support.label} keeps the glass styling, but other apps stay opaque so resizing remains reliable.`;
+  }
+
+  isArtworkThemeActive() {
+    return this.activeTheme === 'cover-match' || (
+      this.activeTheme === 'glass' && this.glassOptions.tone === 'cover'
+    );
+  }
+
   setArtwork(rawUrl, rawIdentity = '') {
     let artworkUrl = '';
     if (
@@ -199,17 +288,21 @@ class ThemeManager {
     if (artworkUrl === this.currentArtworkUrl && identity === this.currentArtworkKey) return;
     this.currentArtworkUrl = artworkUrl;
     this.currentArtworkKey = identity;
-    if (this.activeTheme === 'cover-match') void this.refreshCoverTheme();
+    if (this.isArtworkThemeActive()) void this.refreshCoverTheme();
   }
 
   async refreshCoverTheme() {
-    if (this.activeTheme !== 'cover-match') return;
+    if (!this.isArtworkThemeActive()) return;
     const requestGeneration = ++this.coverRequestGeneration;
     const artworkUrl = this.currentArtworkUrl;
     if (!artworkUrl) {
       this.coverSourceColors = { ...CoverThemeModule.DEFAULT_SOURCE_COLORS };
-      this.applyCoverPalette();
-      this.setCoverFeedback('Waiting for a song cover. Cozy-Fi is using its fallback café colors.');
+      this.applyArtworkPalette();
+      if (this.activeTheme === 'glass') {
+        this.setGlassFeedback(this.describeGlassSupport('Waiting for a song cover, so the glass is using fallback café colors.'));
+      } else {
+        this.setCoverFeedback('Waiting for a song cover. Cozy-Fi is using its fallback café colors.');
+      }
       return;
     }
 
@@ -218,28 +311,44 @@ class ThemeManager {
       this.coverColorCache.delete(artworkUrl);
       this.coverColorCache.set(artworkUrl, cached);
       this.coverSourceColors = { ...cached };
-      this.applyCoverPalette();
-      this.setCoverFeedback(`Matched this cover · ${this.coverPalette.mood} · ${this.coverOptions.style.replace('-', ' ')}.`);
+      this.applyArtworkPalette();
+      this.setArtworkFeedback();
       return;
     }
 
-    this.setCoverFeedback('Matching the current song cover…');
+    if (this.activeTheme === 'glass') this.setGlassFeedback('Matching the current song cover for Cozy Glass…');
+    else this.setCoverFeedback('Matching the current song cover…');
     try {
       const dataUrl = artworkUrl.startsWith('data:image/')
         ? artworkUrl
         : await window.cozyApi?.theme?.resolveArtwork?.(artworkUrl);
       const sourceColors = await CoverThemeModule.extractArtworkFromDataUrl(dataUrl);
-      if (requestGeneration !== this.coverRequestGeneration || this.activeTheme !== 'cover-match') return;
+      if (requestGeneration !== this.coverRequestGeneration || !this.isArtworkThemeActive()) return;
       this.coverColorCache.set(artworkUrl, sourceColors);
       while (this.coverColorCache.size > 32) this.coverColorCache.delete(this.coverColorCache.keys().next().value);
       this.coverSourceColors = { ...sourceColors };
-      this.applyCoverPalette();
-      this.setCoverFeedback(`Matched this cover · ${this.coverPalette.mood} · ${this.coverOptions.style.replace('-', ' ')}.`);
+      this.applyArtworkPalette();
+      this.setArtworkFeedback();
     } catch (error) {
-      if (requestGeneration !== this.coverRequestGeneration || this.activeTheme !== 'cover-match') return;
+      if (requestGeneration !== this.coverRequestGeneration || !this.isArtworkThemeActive()) return;
       this.coverSourceColors = { ...CoverThemeModule.DEFAULT_SOURCE_COLORS };
-      this.applyCoverPalette();
-      this.setCoverFeedback(error?.message || 'This cover could not be matched. Using fallback café colors.', true);
+      this.applyArtworkPalette();
+      const message = error?.message || 'This cover could not be matched. Using fallback café colors.';
+      if (this.activeTheme === 'glass') this.setGlassFeedback(this.describeGlassSupport(message), true);
+      else this.setCoverFeedback(message, true);
+    }
+  }
+
+  applyArtworkPalette() {
+    if (this.activeTheme === 'glass') this.applyGlassPalette();
+    else this.applyCoverPalette();
+  }
+
+  setArtworkFeedback() {
+    if (this.activeTheme === 'glass') {
+      this.setGlassFeedback(this.describeGlassSupport(`Matched this cover · ${this.glassPalette.mood} glass.`));
+    } else {
+      this.setCoverFeedback(`Matched this cover · ${this.coverPalette.mood} · ${this.coverOptions.style.replace('-', ' ')}.`);
     }
   }
 
@@ -278,6 +387,12 @@ class ThemeManager {
   }
 
   saveActiveTheme() {
+    if (this.activeTheme === 'glass') {
+      localStorage.setItem('cozy_theme', 'glass');
+      localStorage.setItem(this.glassStorageKey, JSON.stringify(this.glassOptions));
+      this.setGlassFeedback(this.describeGlassSupport('Cozy Glass settings saved.'));
+      return;
+    }
     if (this.activeTheme === 'cover-match') {
       localStorage.setItem('cozy_theme', 'cover-match');
       localStorage.setItem(this.coverStorageKey, JSON.stringify(this.coverOptions));
@@ -345,6 +460,7 @@ class ThemeManager {
     if (theme === 'soft-sunset') document.body.classList.add('theme-soft-sunset');
     if (this.customEditor) this.customEditor.hidden = true;
     if (this.coverEditor) this.coverEditor.hidden = true;
+    if (this.glassEditor) this.glassEditor.hidden = true;
     this.notifyThemeChange();
   }
 
@@ -372,6 +488,7 @@ class ThemeManager {
     Object.entries(variables).forEach(([property, value]) => document.body.style.setProperty(property, value));
     if (this.customEditor) this.customEditor.hidden = false;
     if (this.coverEditor) this.coverEditor.hidden = true;
+    if (this.glassEditor) this.glassEditor.hidden = true;
     this.notifyThemeChange();
   }
 
@@ -402,19 +519,69 @@ class ThemeManager {
     Object.entries(variables).forEach(([property, value]) => document.body.style.setProperty(property, value));
     if (this.customEditor) this.customEditor.hidden = true;
     if (this.coverEditor) this.coverEditor.hidden = false;
+    if (this.glassEditor) this.glassEditor.hidden = true;
     this.updateCoverSwatches();
+    this.notifyThemeChange();
+  }
+
+  applyGlassPalette() {
+    this.glassPalette = CoverThemeModule.buildGlassThemePalette(this.coverSourceColors, this.glassOptions);
+    const colors = this.glassPalette.colors;
+    const glass = this.glassPalette.glass;
+    const opacity = this.glassOptions.opacity;
+    const mainOpacity = Math.max(45, opacity - 12);
+    const cardOpacity = Math.min(98, opacity + 7);
+    this.clearThemeClassesAndStyles();
+    document.body.classList.add('theme-glass', `glass-style-${glass.style}`, `glass-tone-${this.glassPalette.mood}`);
+    const accentHover = this.mixHex(colors.accentColor, colors.borderColor, 0.18);
+    const variables = {
+      '--glass-base-primary': colors.bgPrimary,
+      '--glass-base-secondary': colors.bgSecondary,
+      '--glass-base-card': colors.bgCard,
+      '--glass-main-opacity': `${mainOpacity}%`,
+      '--glass-surface-opacity': `${opacity}%`,
+      '--glass-card-opacity': `${cardOpacity}%`,
+      '--glass-blur': `${this.glassOptions.blur}px`,
+      '--glass-start': glass.start,
+      '--glass-end': glass.end,
+      '--glass-glow': glass.glow,
+      '--glass-sheen': glass.sheen,
+      '--bg-primary': 'color-mix(in srgb, var(--glass-base-primary) var(--glass-main-opacity), transparent)',
+      '--bg-secondary': 'color-mix(in srgb, var(--glass-base-secondary) var(--glass-surface-opacity), transparent)',
+      '--bg-card': 'color-mix(in srgb, var(--glass-base-card) var(--glass-card-opacity), transparent)',
+      '--text-primary': colors.textPrimary,
+      '--text-secondary': colors.textSecondary,
+      '--accent-color': colors.accentColor,
+      '--accent-color-hover': accentHover,
+      '--border-color': colors.borderColor,
+      '--progress-bg': 'color-mix(in srgb, var(--glass-base-card) 72%, transparent)',
+      '--shadow-color': `color-mix(in srgb, ${colors.borderColor} 34%, transparent)`,
+      '--card-light': 'color-mix(in srgb, var(--glass-base-secondary) var(--glass-card-opacity), transparent)',
+      '--button-filled-text': this.contrastRatio(colors.accentColor, '#241b1b') >= 4.5 ? '#241b1b' : '#fffaf4'
+    };
+    Object.entries(variables).forEach(([property, value]) => document.body.style.setProperty(property, value));
+    if (this.customEditor) this.customEditor.hidden = true;
+    if (this.coverEditor) this.coverEditor.hidden = true;
+    if (this.glassEditor) this.glassEditor.hidden = false;
+    this.updateGlassSwatches();
     this.notifyThemeChange();
   }
 
   clearThemeClassesAndStyles() {
     Array.from(document.body.classList)
-      .filter(className => className.startsWith('theme-') || className.startsWith('cover-style-'))
+      .filter(className => (
+        className.startsWith('theme-') || className.startsWith('cover-style-') ||
+        className.startsWith('glass-style-') || className.startsWith('glass-tone-')
+      ))
       .forEach(className => document.body.classList.remove(className));
     [
       '--bg-primary', '--bg-secondary', '--bg-card', '--text-primary', '--text-secondary',
       '--accent-color', '--accent-color-hover', '--border-color', '--progress-bg',
       '--shadow-color', '--card-light', '--button-filled-text',
-      '--cover-start', '--cover-end', '--cover-glow'
+      '--cover-start', '--cover-end', '--cover-glow',
+      '--glass-base-primary', '--glass-base-secondary', '--glass-base-card',
+      '--glass-main-opacity', '--glass-surface-opacity', '--glass-card-opacity', '--glass-blur',
+      '--glass-start', '--glass-end', '--glass-glow', '--glass-sheen'
     ].forEach(property => document.body.style.removeProperty(property));
   }
 
@@ -440,6 +607,14 @@ class ThemeManager {
         options: { ...this.coverOptions },
         fontSize: this.activeFontSize
       };
+    } else if (this.activeTheme === 'glass') {
+      payload = {
+        kind: 'glass',
+        colors: { ...this.glassPalette.colors },
+        glass: { ...this.glassPalette.glass },
+        options: { ...this.glassOptions },
+        fontSize: this.activeFontSize
+      };
     } else {
       payload = { kind: 'preset', id: this.activeTheme, fontSize: this.activeFontSize };
     }
@@ -455,8 +630,10 @@ class ThemeManager {
     });
     if (this.customEditor) this.customEditor.hidden = this.activeTheme !== 'custom';
     if (this.coverEditor) this.coverEditor.hidden = this.activeTheme !== 'cover-match';
+    if (this.glassEditor) this.glassEditor.hidden = this.activeTheme !== 'glass';
     this.updateCustomSwatches();
     this.updateCoverSwatches();
+    this.updateGlassSwatches();
   }
 
   updateTypoBoxesUI() {
@@ -496,6 +673,19 @@ class ThemeManager {
       'cover-swatch-primary': palette.cover.start,
       'cover-swatch-card': palette.cover.end,
       'cover-swatch-accent': palette.colors.accentColor
+    };
+    Object.entries(assignments).forEach(([id, color]) => {
+      const element = document.getElementById(id);
+      if (element) element.style.backgroundColor = color;
+    });
+  }
+
+  updateGlassSwatches() {
+    const palette = this.glassPalette || CoverThemeModule.buildGlassThemePalette();
+    const assignments = {
+      'glass-swatch-primary': palette.glass.start,
+      'glass-swatch-card': palette.glass.end,
+      'glass-swatch-accent': palette.glass.glow
     };
     Object.entries(assignments).forEach(([id, color]) => {
       const element = document.getElementById(id);
@@ -556,6 +746,12 @@ class ThemeManager {
     if (!this.coverFeedbackEl) return;
     this.coverFeedbackEl.textContent = message;
     this.coverFeedbackEl.classList.toggle('warning', warning);
+  }
+
+  setGlassFeedback(message, warning = false) {
+    if (!this.glassFeedbackEl) return;
+    this.glassFeedbackEl.textContent = message;
+    this.glassFeedbackEl.classList.toggle('warning', warning);
   }
 
   normalizeHex(value, fallback) {

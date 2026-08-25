@@ -130,14 +130,19 @@ document.addEventListener('DOMContentLoaded', () => {
   function clearTheme() {
     Array.from(document.body.classList)
       .filter(className => (
-        className.startsWith('theme-') || className.startsWith('cover-style-') || className.startsWith('font-')
+        className.startsWith('theme-') || className.startsWith('cover-style-') ||
+        className.startsWith('glass-style-') || className.startsWith('glass-tone-') ||
+        className.startsWith('font-')
       ))
       .forEach(className => document.body.classList.remove(className));
     [
       '--bg-primary', '--bg-secondary', '--bg-card', '--text-primary', '--text-secondary',
       '--accent-color', '--accent-color-hover', '--border-color', '--progress-bg',
       '--shadow-color', '--card-light', '--button-filled-text',
-      '--cover-start', '--cover-end', '--cover-glow'
+      '--cover-start', '--cover-end', '--cover-glow',
+      '--glass-base-primary', '--glass-base-secondary', '--glass-base-card',
+      '--glass-main-opacity', '--glass-surface-opacity', '--glass-card-opacity', '--glass-blur',
+      '--glass-start', '--glass-end', '--glass-glow', '--glass-sheen'
     ].forEach(property => document.body.style.removeProperty(property));
   }
 
@@ -150,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTheme();
     if (theme.kind === 'preset' && theme.id === 'soft-sunset') {
       document.body.classList.add('theme-soft-sunset');
-    } else if (['custom', 'cover'].includes(theme.kind) && theme.colors) {
+    } else if (['custom', 'cover', 'glass'].includes(theme.kind) && theme.colors) {
       const colors = theme.colors;
       const accent = normalizeHex(colors.accentColor, '#c08a6e');
       const border = normalizeHex(colors.borderColor, '#3c2f2f');
@@ -179,13 +184,41 @@ document.addEventListener('DOMContentLoaded', () => {
         variables['--cover-start'] = normalizeHex(theme.cover?.start, primary);
         variables['--cover-end'] = normalizeHex(theme.cover?.end, secondary);
         variables['--cover-glow'] = normalizeHex(theme.cover?.glow, accent);
+      } else if (theme.kind === 'glass') {
+        const options = CoverTheme.normalizeGlassOptions(theme.options);
+        const style = ['frosted', 'liquid'].includes(theme.glass?.style) ? theme.glass.style : options.style;
+        const tone = ['light', 'dark'].includes(theme.options?.tone)
+          ? theme.options.tone
+          : contrastRatio(primary, '#ffffff') >= 7 ? 'dark' : 'light';
+        const mainOpacity = Math.max(45, options.opacity - 12);
+        const cardOpacity = Math.min(98, options.opacity + 7);
+        document.body.classList.add('theme-glass', `glass-style-${style}`, `glass-tone-${tone}`);
+        Object.assign(variables, {
+          '--glass-base-primary': primary,
+          '--glass-base-secondary': secondary,
+          '--glass-base-card': card,
+          '--glass-main-opacity': `${mainOpacity}%`,
+          '--glass-surface-opacity': `${options.opacity}%`,
+          '--glass-card-opacity': `${cardOpacity}%`,
+          '--glass-blur': `${options.blur}px`,
+          '--glass-start': normalizeHex(theme.glass?.start, primary),
+          '--glass-end': normalizeHex(theme.glass?.end, secondary),
+          '--glass-glow': normalizeHex(theme.glass?.glow, accent),
+          '--glass-sheen': normalizeHex(theme.glass?.sheen, '#ffffff'),
+          '--bg-primary': 'color-mix(in srgb, var(--glass-base-primary) var(--glass-main-opacity), transparent)',
+          '--bg-secondary': 'color-mix(in srgb, var(--glass-base-secondary) var(--glass-surface-opacity), transparent)',
+          '--bg-card': 'color-mix(in srgb, var(--glass-base-card) var(--glass-card-opacity), transparent)',
+          '--progress-bg': 'color-mix(in srgb, var(--glass-base-card) 72%, transparent)',
+          '--shadow-color': `color-mix(in srgb, ${border} 34%, transparent)`,
+          '--card-light': 'color-mix(in srgb, var(--glass-base-secondary) var(--glass-card-opacity), transparent)'
+        });
       } else {
         document.body.classList.add('theme-custom');
       }
       Object.entries(variables).forEach(([property, value]) => document.body.style.setProperty(property, value));
     }
     document.body.classList.toggle('font-enlarged', theme.fontSize === 'enlarged');
-    if (rememberPreference && theme.kind === 'cover') void refreshSideCoverTheme();
+    if (rememberPreference && usesArtworkTheme()) void refreshSideCoverTheme();
   }
 
   function buildResolvedCoverTheme(sourceColors) {
@@ -200,15 +233,36 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  function usesArtworkTheme() {
+    return activeThemePreference.kind === 'cover' || (
+      activeThemePreference.kind === 'glass' && activeThemePreference.options?.tone === 'cover'
+    );
+  }
+
+  function buildResolvedArtworkTheme(sourceColors) {
+    if (activeThemePreference.kind === 'glass') {
+      const options = CoverTheme.normalizeGlassOptions(activeThemePreference.options);
+      const palette = CoverTheme.buildGlassThemePalette(sourceColors, options);
+      return {
+        kind: 'glass',
+        colors: palette.colors,
+        glass: palette.glass,
+        options,
+        fontSize: activeThemePreference.fontSize
+      };
+    }
+    return buildResolvedCoverTheme(sourceColors);
+  }
+
   async function refreshSideCoverTheme() {
-    if (activeThemePreference.kind !== 'cover' || !CoverTheme) return;
+    if (!usesArtworkTheme() || !CoverTheme) return;
     const cover = safeImageUrl(state.track?.cover);
     const identity = `${trackIdentity(state.track)}\u001f${cover || ''}`;
     if (identity === coverThemeKey) return;
     coverThemeKey = identity;
     const requestGeneration = ++coverThemeRequestGeneration;
     if (!cover) {
-      applyTheme(buildResolvedCoverTheme(CoverTheme.DEFAULT_SOURCE_COLORS), false);
+      applyTheme(buildResolvedArtworkTheme(CoverTheme.DEFAULT_SOURCE_COLORS), false);
       return;
     }
     try {
@@ -219,12 +273,12 @@ document.addEventListener('DOMContentLoaded', () => {
         coverThemeColorCache.set(cover, sourceColors);
         while (coverThemeColorCache.size > 24) coverThemeColorCache.delete(coverThemeColorCache.keys().next().value);
       }
-      if (requestGeneration !== coverThemeRequestGeneration || activeThemePreference.kind !== 'cover') return;
-      applyTheme(buildResolvedCoverTheme(sourceColors), false);
+      if (requestGeneration !== coverThemeRequestGeneration || !usesArtworkTheme()) return;
+      applyTheme(buildResolvedArtworkTheme(sourceColors), false);
     } catch (error) {
-      if (requestGeneration !== coverThemeRequestGeneration || activeThemePreference.kind !== 'cover') return;
+      if (requestGeneration !== coverThemeRequestGeneration || !usesArtworkTheme()) return;
       console.warn('[Side Player] Could not match cover colors:', error?.message || error);
-      applyTheme(buildResolvedCoverTheme(CoverTheme.DEFAULT_SOURCE_COLORS), false);
+      applyTheme(buildResolvedArtworkTheme(CoverTheme.DEFAULT_SOURCE_COLORS), false);
     }
   }
 

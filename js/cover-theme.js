@@ -11,6 +11,8 @@
   });
   const COVER_STYLES = new Set(['soft-gradient', 'vivid-gradient', 'solid']);
   const COVER_MOODS = new Set(['auto', 'light', 'dark']);
+  const GLASS_STYLES = new Set(['frosted', 'liquid']);
+  const GLASS_TONES = new Set(['cover', 'light', 'dark']);
 
   function clamp(value, minimum = 0, maximum = 1) {
     return Math.max(minimum, Math.min(maximum, Number(value) || 0));
@@ -116,6 +118,14 @@
     const mood = COVER_MOODS.has(value.mood) ? value.mood : 'auto';
     const intensity = Math.round(clamp(Number(value.intensity) || 68, 20, 100));
     return { style, mood, intensity };
+  }
+
+  function normalizeGlassOptions(value = {}) {
+    const style = GLASS_STYLES.has(value.style) ? value.style : 'liquid';
+    const tone = GLASS_TONES.has(value.tone) ? value.tone : 'cover';
+    const opacity = Math.round(clamp(Number(value.opacity) || 78, 65, 96));
+    const blur = Math.round(clamp(Number(value.blur) || 26, 8, 48));
+    return { style, tone, opacity, blur };
   }
 
   function representativeColor(bucket) {
@@ -314,6 +324,34 @@
     };
   }
 
+  function buildGlassThemePalette(rawSourceColors = {}, rawOptions = {}) {
+    const options = normalizeGlassOptions(rawOptions);
+    const sourceColors = options.tone === 'light'
+      ? DEFAULT_SOURCE_COLORS
+      : options.tone === 'dark'
+        ? { primary: '#293442', secondary: '#725b69', accent: '#c58f73', average: '#1c232d' }
+        : rawSourceColors;
+    const palette = buildCoverThemePalette(sourceColors, {
+      style: options.style === 'liquid' ? 'vivid-gradient' : 'soft-gradient',
+      mood: options.tone === 'cover' ? 'auto' : options.tone,
+      intensity: options.style === 'liquid' ? 76 : 58
+    });
+    const lightGlass = palette.mood === 'light';
+    return {
+      mood: palette.mood,
+      options,
+      source: palette.source,
+      colors: palette.colors,
+      glass: {
+        style: options.style,
+        start: palette.cover.start,
+        end: palette.cover.end,
+        glow: palette.cover.glow,
+        sheen: lightGlass ? '#ffffff' : '#fffaf4'
+      }
+    };
+  }
+
   function extractArtworkFromDataUrl(dataUrl, sampleSize = 40) {
     if (typeof Image === 'undefined' || typeof document === 'undefined') {
       return Promise.reject(new Error('Artwork color extraction requires a browser canvas.'));
@@ -366,8 +404,10 @@
     contrastRatio,
     colorDistance,
     normalizeCoverOptions,
+    normalizeGlassOptions,
     extractArtworkColors,
     buildCoverThemePalette,
+    buildGlassThemePalette,
     extractArtworkFromDataUrl
   };
 });

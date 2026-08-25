@@ -20,6 +20,17 @@
   --cover-start: #e8c7b5;
   --cover-end: #ead8c8;
   --cover-glow: #d7b29e;
+  --glass-base-primary: #f2e8dc;
+  --glass-base-secondary: #fffaf3;
+  --glass-base-card: #e6d2c2;
+  --glass-main-opacity: 66%;
+  --glass-surface-opacity: 78%;
+  --glass-card-opacity: 85%;
+  --glass-blur: 26px;
+  --glass-start: #e8c7b5;
+  --glass-end: #ead8c8;
+  --glass-glow: #d7b29e;
+  --glass-sheen: #ffffff;
 
   /* Typography Scales (Standard by default) */
   --font-base: 15px;
@@ -73,6 +84,66 @@ body.theme-cover-match.cover-style-solid .main-view {
 
 body.theme-cover-match .header-bar {
   background-color: color-mix(in srgb, var(--bg-primary) 90%, transparent);
+}
+
+body.theme-glass {
+  background:
+    radial-gradient(circle at 12% -8%, color-mix(in srgb, var(--glass-glow) 42%, transparent) 0, transparent 46%),
+    radial-gradient(circle at 94% 12%, color-mix(in srgb, var(--glass-end) 34%, transparent) 0, transparent 45%),
+    transparent;
+}
+
+body.theme-glass .main-view {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 10%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-start) 28%, transparent), color-mix(in srgb, var(--glass-end) 18%, transparent)),
+    var(--bg-primary);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.22);
+}
+
+body.theme-glass.glass-style-frosted .main-view {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-sheen) 13%, transparent), transparent 52%),
+    var(--bg-primary);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.08);
+}
+
+body.theme-glass.glass-style-liquid .main-view {
+  background:
+    radial-gradient(circle at 9% 4%, color-mix(in srgb, var(--glass-glow) 34%, transparent) 0, transparent 44%),
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--glass-end) 32%, transparent) 0, transparent 48%),
+    linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 15%, transparent), transparent 30%),
+    var(--bg-primary);
+}
+
+body.theme-glass :where(.retro-border, .sidebar, .player-bar, .header-bar) {
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+}
+
+body.theme-glass.glass-style-liquid :where(.retro-border, .settings-card) {
+  background-image:
+    linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 21%, transparent), transparent 31%),
+    radial-gradient(circle at 92% 5%, color-mix(in srgb, var(--glass-glow) 20%, transparent), transparent 38%);
+}
+
+body.theme-glass :where(.retro-border, .retro-button, .theme-option-box, .typo-option-row, input, select) {
+  border-radius: 12px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--border-color) 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--glass-sheen) 42%, transparent);
+}
+
+body.theme-glass .player-bar {
+  background-color: var(--bg-secondary);
+  border-top-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+}
+
+body.theme-glass .sidebar {
+  background-color: var(--bg-secondary);
+  border-right-color: color-mix(in srgb, var(--border-color) 68%, transparent);
+}
+
+body.theme-glass .header-bar {
+  background-color: var(--bg-primary);
 }
 
 /* Enlarged Typography overrides */
@@ -2110,7 +2181,7 @@ button:disabled {
 
 .theme-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .custom-theme-editor {
@@ -2198,6 +2269,103 @@ button:disabled {
 }
 
 .cover-theme-feedback.warning {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.glass-theme-option {
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, white 34%, transparent), transparent 42%),
+    linear-gradient(145deg, color-mix(in srgb, var(--bg-card) 66%, transparent), var(--bg-secondary));
+}
+
+.glass-swatch {
+  position: relative;
+  overflow: hidden;
+  background-image: linear-gradient(135deg, color-mix(in srgb, white 48%, transparent), transparent 50%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 68%, transparent);
+}
+
+.glass-theme-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 2px dashed var(--border-color);
+}
+
+.glass-theme-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.glass-range-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  color: var(--text-secondary);
+  font-family: 'Space Mono', monospace;
+  font-size: var(--font-xs);
+  font-weight: 700;
+}
+
+.glass-range-field input[type='range'] {
+  grid-column: 1;
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--accent-color);
+}
+
+.glass-range-field output {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: end;
+  min-width: 48px;
+  padding: 5px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.glass-theme-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 18%, transparent), transparent 48%),
+    var(--bg-secondary);
+}
+
+.glass-theme-status-icon {
+  width: 26px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 28% 24%, color-mix(in srgb, white 78%, transparent) 0 2px, transparent 3px),
+    linear-gradient(135deg, var(--glass-start), var(--glass-end));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 72%, transparent), 0 3px 9px var(--shadow-color);
+}
+
+.glass-theme-feedback {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.glass-theme-feedback.warning {
   color: var(--text-primary);
   font-weight: 700;
 }
@@ -2557,6 +2725,10 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .glass-theme-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .player-view-tabs-shell {
     align-items: stretch;
     flex-direction: column;
@@ -2606,6 +2778,15 @@ button:disabled {
 
   .lyrics-message {
     padding: 20px 14px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  body.theme-glass {
+    --glass-main-opacity: 96% !important;
+    --glass-surface-opacity: 98% !important;
+    --glass-card-opacity: 100% !important;
+    --glass-blur: 0px !important;
   }
 }
 

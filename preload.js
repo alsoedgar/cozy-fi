@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('cozyApi', {
   theme: {
     resolveArtwork: url => ipcRenderer.invoke('theme-resolve-artwork', url)
   },
+  appearance: {
+    getSupport: () => ipcRenderer.invoke('appearance-get-support')
+  },
   spotify: {
     getProfile: () => ipcRenderer.invoke('get-profile'),
     getPlaylists: () => ipcRenderer.invoke('get-playlists'),

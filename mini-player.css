@@ -16,6 +16,17 @@
   --cover-start: #e8c7b5;
   --cover-end: #ead8c8;
   --cover-glow: #d7b29e;
+  --glass-base-primary: #f2e8dc;
+  --glass-base-secondary: #fffaf3;
+  --glass-base-card: #e6d2c2;
+  --glass-main-opacity: 66%;
+  --glass-surface-opacity: 78%;
+  --glass-card-opacity: 85%;
+  --glass-blur: 26px;
+  --glass-start: #e8c7b5;
+  --glass-end: #ead8c8;
+  --glass-glow: #d7b29e;
+  --glass-sheen: #ffffff;
   --border-width: 3px;
 }
 
@@ -47,6 +58,46 @@ body.theme-cover-match.cover-style-vivid-gradient {
 
 body.theme-cover-match.cover-style-solid {
   background: var(--cover-start);
+}
+
+body.theme-glass {
+  background:
+    radial-gradient(circle at 8% 2%, color-mix(in srgb, var(--glass-glow) 34%, transparent), transparent 46%),
+    transparent;
+}
+
+body.theme-glass .mini-window {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 16%, transparent), transparent 34%),
+    var(--bg-secondary);
+  border-radius: 16px;
+  box-shadow: 0 12px 36px color-mix(in srgb, var(--border-color) 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--glass-sheen) 56%, transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.22);
+}
+
+body.theme-glass .mini-titlebar {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 18%, transparent), transparent 42%),
+    var(--bg-card);
+}
+
+body.theme-glass.glass-style-liquid .mini-player-panel {
+  background:
+    radial-gradient(circle at 92% 2%, color-mix(in srgb, var(--glass-glow) 32%, transparent), transparent 46%),
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-start) 26%, transparent), color-mix(in srgb, var(--glass-end) 14%, transparent)),
+    var(--bg-primary);
+}
+
+body.theme-glass.glass-style-frosted .mini-player-panel {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-sheen) 12%, transparent), transparent 52%),
+    var(--bg-primary);
+}
+
+body.theme-glass :where(button, .mini-view-tabs, .mini-capability, .mini-art-frame, .mini-lyrics-frame) {
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--border-color) 13%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--glass-sheen) 40%, transparent);
 }
 
 * {
@@ -197,6 +248,15 @@ body.theme-cover-match.cover-style-vivid-gradient .mini-player-panel {
 
 body.theme-cover-match.cover-style-solid .mini-player-panel {
   background: var(--bg-secondary);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  body.theme-glass {
+    --glass-main-opacity: 96% !important;
+    --glass-surface-opacity: 98% !important;
+    --glass-card-opacity: 100% !important;
+    --glass-blur: 0px !important;
+  }
 }
 
 .mini-status-row,

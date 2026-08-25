@@ -4,8 +4,10 @@ const {
   contrastRatio,
   colorDistance,
   normalizeCoverOptions,
+  normalizeGlassOptions,
   extractArtworkColors,
-  buildCoverThemePalette
+  buildCoverThemePalette,
+  buildGlassThemePalette
 } = require('../js/cover-theme');
 
 assert.deepEqual(normalizeCoverOptions({}), {
@@ -22,6 +24,18 @@ assert.deepEqual(normalizeCoverOptions({ style: 'solid', mood: 'dark', intensity
   style: 'solid',
   mood: 'dark',
   intensity: 20
+});
+assert.deepEqual(normalizeGlassOptions({}), {
+  style: 'liquid',
+  tone: 'cover',
+  opacity: 78,
+  blur: 26
+});
+assert.deepEqual(normalizeGlassOptions({ style: 'flat', tone: 'blue', opacity: 2, blur: 900 }), {
+  style: 'liquid',
+  tone: 'cover',
+  opacity: 65,
+  blur: 48
 });
 
 const width = 8;
@@ -76,4 +90,23 @@ for (const source of sources) {
 assert.equal(buildCoverThemePalette({ average: '#050505' }, { mood: 'auto' }).mood, 'dark');
 assert.equal(buildCoverThemePalette({ average: '#fafafa' }, { mood: 'auto' }).mood, 'light');
 
-console.log('Cover color extraction, customization, and contrast checks passed.');
+for (const source of sources) {
+  for (const style of ['frosted', 'liquid']) {
+    for (const tone of ['cover', 'light', 'dark']) {
+      const palette = buildGlassThemePalette(source, { style, tone, opacity: 72, blur: 32 });
+      assert.equal(palette.options.style, style);
+      assert.equal(palette.options.tone, tone);
+      assert.equal(palette.options.opacity, 72);
+      assert.equal(palette.options.blur, 32);
+      for (const value of [...Object.values(palette.colors), ...Object.values(palette.glass).slice(1)]) {
+        assert.match(value, /^#[0-9a-f]{6}$/i);
+      }
+      for (const background of [palette.colors.bgPrimary, palette.colors.bgSecondary, palette.colors.bgCard]) {
+        assert.ok(contrastRatio(palette.colors.textPrimary, background) >= 7);
+        assert.ok(contrastRatio(palette.colors.textSecondary, background) >= 4.5);
+      }
+    }
+  }
+}
+
+console.log('Cover color extraction, glass customization, and contrast checks passed.');

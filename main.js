@@ -3,6 +3,7 @@ const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, screen } = requ
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { spawn } = require('child_process');
@@ -222,9 +223,49 @@ function normalizeSidePlayerBounds(value) {
   };
 }
 
+function getGlassAppearanceSupport() {
+  if (process.platform === 'darwin') {
+    return { platform: 'darwin', nativeBackdrop: true, label: 'Native macOS vibrancy' };
+  }
+  if (process.platform === 'win32') {
+    const releaseParts = os.release().split('.').map(part => Number.parseInt(part, 10));
+    const windowsBuild = Number.isFinite(releaseParts[2]) ? releaseParts[2] : 0;
+    const nativeBackdrop = windowsBuild >= 22621;
+    return {
+      platform: 'win32',
+      nativeBackdrop,
+      label: nativeBackdrop ? 'Native Windows Acrylic/Mica' : 'CSS glass fallback on this Windows version'
+    };
+  }
+  if (process.platform === 'linux') {
+    return { platform: 'linux', nativeBackdrop: false, label: 'CSS glass fallback on Linux' };
+  }
+  return { platform: process.platform, nativeBackdrop: false, label: 'CSS glass fallback' };
+}
+
+function applyNativeWindowTheme(window, theme = sidePlayerTheme) {
+  if (!window || window.isDestroyed()) return getGlassAppearanceSupport();
+  const support = getGlassAppearanceSupport();
+  const glassActive = theme?.kind === 'glass';
+  try {
+    if (process.platform === 'win32') {
+      const material = glassActive && support.nativeBackdrop
+        ? (theme.glass?.style === 'frosted' ? 'mica' : 'acrylic')
+        : 'none';
+      window.setBackgroundMaterial(material);
+    } else if (process.platform === 'darwin') {
+      window.setVibrancy(glassActive ? 'under-window' : null);
+    }
+    window.setBackgroundColor(glassActive && support.nativeBackdrop ? '#00000000' : '#f7f0e3');
+  } catch (error) {
+    console.warn('[Appearance] Could not apply the native glass backdrop:', error.message);
+  }
+  return support;
+}
+
 function normalizeSidePlayerTheme(value) {
   const fontSize = value?.fontSize === 'enlarged' ? 'enlarged' : 'standard';
-  if (['custom', 'cover'].includes(value?.kind) && value.colors && typeof value.colors === 'object') {
+  if (['custom', 'cover', 'glass'].includes(value?.kind) && value.colors && typeof value.colors === 'object') {
     const keys = [
       'bgPrimary', 'bgSecondary', 'bgCard', 'textPrimary',
       'textSecondary', 'accentColor', 'borderColor'
@@ -251,6 +292,21 @@ function normalizeSidePlayerTheme(value) {
         intensity: Math.max(20, Math.min(100, Math.round(Number(value.options?.intensity) || 68)))
       };
       return { kind: 'cover', colors, cover, options, fontSize };
+    }
+    if (value.kind === 'glass') {
+      const style = ['frosted', 'liquid'].includes(value.options?.style)
+        ? value.options.style
+        : ['frosted', 'liquid'].includes(value.glass?.style) ? value.glass.style : 'liquid';
+      const tone = ['cover', 'light', 'dark'].includes(value.options?.tone) ? value.options.tone : 'cover';
+      const opacity = Math.max(65, Math.min(96, Math.round(Number(value.options?.opacity) || 78)));
+      const blur = Math.max(8, Math.min(48, Math.round(Number(value.options?.blur) || 26)));
+      const glass = { style };
+      for (const key of ['start', 'end', 'glow', 'sheen']) {
+        const color = typeof value.glass?.[key] === 'string' ? value.glass[key].trim().toLowerCase() : '';
+        if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Invalid Cozy Glass color.');
+        glass[key] = color;
+      }
+      return { kind: 'glass', colors, glass, options: { style, tone, opacity, blur }, fontSize };
     }
     return { kind: 'custom', colors, fontSize };
   }
@@ -616,6 +672,7 @@ function ensureSidePlayerWindow() {
     }
   });
   sidePlayerWindow = createdWindow;
+  applyNativeWindowTheme(createdWindow, sidePlayerTheme);
   installNavigationGuards(createdWindow, TRUSTED_SIDE_PLAYER_URL);
   createdWindow.on('show', publishSidePlayerState);
   createdWindow.on('hide', publishSidePlayerState);
@@ -1859,6 +1916,7 @@ async function runSmokeTest() {
           );
         };
         const capability = await window.cozyApi.spotify.getPlaybackCapability();
+        const appearanceSupport = await window.cozyApi.appearance.getSupport();
         document.getElementById('sidebar-toggle').click();
         const sidebar = document.getElementById('app-sidebar');
         const sidebarScrolls = getComputedStyle(sidebar).overflowY === 'auto';
@@ -1902,6 +1960,16 @@ async function runSmokeTest() {
           /^#[0-9a-f]{6}$/i.test(getComputedStyle(document.body).getPropertyValue('--cover-start').trim()) &&
           viewFits('settings')
         );
+        document.querySelector('[data-theme="glass"]').click();
+        const glassThemePreview = Boolean(
+          document.body.classList.contains('theme-glass') &&
+          document.body.classList.contains('glass-style-liquid') &&
+          !document.getElementById('glass-theme-editor').hidden &&
+          ['glass-theme-style', 'glass-theme-tone', 'glass-theme-opacity', 'glass-theme-blur']
+            .every(id => Boolean(document.getElementById(id))) &&
+          /px$/.test(getComputedStyle(document.body).getPropertyValue('--glass-blur').trim()) &&
+          viewFits('settings')
+        );
         document.querySelector('[data-theme="morning-lo-fi"]').click();
         activate('home');
         const checks = {
@@ -1913,9 +1981,14 @@ async function runSmokeTest() {
           settings: activate('settings'),
           customTheme: Boolean(document.getElementById('custom-theme-editor') && document.querySelectorAll('[data-color-key]').length >= 7),
           coverTheme: coverThemePreview,
+          glassTheme: glassThemePreview,
           sidePlayerToggle: Boolean(document.getElementById('side-player-toggle')),
           pagination: ['liked-tracks-pagination', 'library-grid-pagination', 'search-pagination'].every(id => Boolean(document.getElementById(id))),
           capability: Boolean(capability && typeof capability.mode === 'string' && typeof capability.preference === 'string'),
+          appearanceApi: Boolean(
+            appearanceSupport && typeof appearanceSupport.nativeBackdrop === 'boolean' &&
+            typeof appearanceSupport.label === 'string'
+          ),
           playbackContext: Boolean(
             playbackContextRequest?.type === 'context' &&
             playbackContextRequest.contextUri === 'spotify:playlist:smokePlaylist' &&
@@ -2069,6 +2142,24 @@ async function runSmokeTest() {
           document.body.classList.contains('cover-style-vivid-gradient') &&
           /^#[0-9a-f]{6}$/i.test(getComputedStyle(document.body).getPropertyValue('--cover-start').trim());
         await window.cozyApi.sidePlayer.syncTheme({
+          kind: 'glass',
+          fontSize: 'standard',
+          colors: {
+            bgPrimary: '#eef2f7', bgSecondary: '#f7f9fc', bgCard: '#dce5ee',
+            textPrimary: '#1d2731', textSecondary: '#43566a', accentColor: '#7798b8',
+            borderColor: '#1d2731'
+          },
+          glass: {
+            style: 'liquid', start: '#c8d9e8', end: '#d9cae5', glow: '#aacbd7', sheen: '#ffffff'
+          },
+          options: { style: 'liquid', tone: 'light', opacity: 76, blur: 28 }
+        });
+        await new Promise(done => setTimeout(done, 40));
+        const glassThemeApplied = document.body.classList.contains('theme-glass') &&
+          document.body.classList.contains('glass-style-liquid') &&
+          getComputedStyle(document.body).getPropertyValue('--glass-blur').trim() === '28px' &&
+          getComputedStyle(document.body).getPropertyValue('--bg-secondary').includes('color-mix');
+        await window.cozyApi.sidePlayer.syncTheme({
           kind: 'custom',
           fontSize: 'enlarged',
           colors: {
@@ -2145,6 +2236,7 @@ async function runSmokeTest() {
           ),
           pinRoundTrip: unpinned?.pinned === false && repinned?.pinned === true,
           coverTheme: coverThemeApplied,
+          glassTheme: glassThemeApplied,
           lyricsLazyBeforeOpen,
           compactLyrics,
           compactLyricsFits,
@@ -2217,6 +2309,7 @@ function createWindow() {
       sandbox: true
     }
   });
+  applyNativeWindowTheme(mainWindow, sidePlayerTheme);
   installNavigationGuards(mainWindow);
   mainWindow.webContents.on('did-finish-load', () => {
     if (IS_SMOKE_TEST) runSmokeTest();
@@ -2233,6 +2326,9 @@ function createWindow() {
       sidePlayerWindow.destroy();
     }
   });
+  mainWindow.on('maximize', () => applyNativeWindowTheme(mainWindow, sidePlayerTheme));
+  mainWindow.on('unmaximize', () => applyNativeWindowTheme(mainWindow, sidePlayerTheme));
+  mainWindow.on('restore', () => applyNativeWindowTheme(mainWindow, sidePlayerTheme));
   mainWindow.loadFile('index.html');
 }
 
@@ -2300,10 +2396,12 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('side-player-sync-theme', (_event, rawTheme) => {
     sidePlayerTheme = normalizeSidePlayerTheme(rawTheme);
+    applyNativeWindowTheme(mainWindow, sidePlayerTheme);
+    applyNativeWindowTheme(sidePlayerWindow, sidePlayerTheme);
     if (sidePlayerWindow && !sidePlayerWindow.isDestroyed()) {
       sidePlayerWindow.webContents.send('side-player-theme', sidePlayerTheme);
     }
-    return true;
+    return getGlassAppearanceSupport();
   });
   ipcMain.handle('side-player-sync-snapshot', (_event, rawSnapshot) => {
     const nextSnapshot = normalizeSidePlayerSnapshot(rawSnapshot);
@@ -2324,6 +2422,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('get-auth-status', async () => Boolean(await ensureAccessToken()));
   ipcMain.handle('get-public-config', () => ({ clientId, playbackPreference }));
+  ipcMain.handle('appearance-get-support', () => getGlassAppearanceSupport());
   ipcMain.handle('theme-resolve-artwork', (_event, rawUrl) => resolveSidePlayerArtwork(rawUrl));
   ipcMain.handle('get-playback-capability', () => getPlaybackCapability());
   ipcMain.handle('set-playback-preference', async (_event, rawPreference) => {

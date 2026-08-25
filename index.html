@@ -233,6 +233,14 @@
                   <div class="swatch" id="cover-swatch-accent" style="background-color: #705e54;"></div>
                 </div>
               </div>
+              <div class="theme-option-box glass-theme-option" data-theme="glass">
+                <div class="theme-name">Cozy Glass</div>
+                <div class="theme-swatches" aria-hidden="true">
+                  <div class="swatch glass-swatch" id="glass-swatch-primary"></div>
+                  <div class="swatch glass-swatch" id="glass-swatch-card"></div>
+                  <div class="swatch glass-swatch" id="glass-swatch-accent"></div>
+                </div>
+              </div>
               <div class="theme-option-box" data-theme="custom">
                 <div class="theme-name">Custom</div>
                 <div class="theme-swatches" aria-hidden="true">
@@ -269,6 +277,39 @@
               <div class="cover-theme-status">
                 <span class="cover-theme-status-dot" aria-hidden="true"></span>
                 <span class="cover-theme-feedback" id="cover-theme-feedback" role="status" aria-live="polite">Waiting for a song cover.</span>
+              </div>
+            </div>
+            <div class="glass-theme-editor" id="glass-theme-editor" hidden>
+              <div class="glass-theme-controls">
+                <label class="theme-field" for="glass-theme-style">
+                  <span>Glass style</span>
+                  <select id="glass-theme-style">
+                    <option value="liquid">Liquid glass</option>
+                    <option value="frosted">Frosted glass</option>
+                  </select>
+                </label>
+                <label class="theme-field" for="glass-theme-tone">
+                  <span>Tint</span>
+                  <select id="glass-theme-tone">
+                    <option value="cover">Match song cover</option>
+                    <option value="light">Café light</option>
+                    <option value="dark">Midnight</option>
+                  </select>
+                </label>
+                <label class="glass-range-field" for="glass-theme-opacity">
+                  <span>Surface opacity</span>
+                  <input type="range" id="glass-theme-opacity" min="65" max="96" step="1" value="78">
+                  <output id="glass-theme-opacity-output" for="glass-theme-opacity">78%</output>
+                </label>
+                <label class="glass-range-field" for="glass-theme-blur">
+                  <span>Backdrop blur</span>
+                  <input type="range" id="glass-theme-blur" min="8" max="48" step="1" value="26">
+                  <output id="glass-theme-blur-output" for="glass-theme-blur">26px</output>
+                </label>
+              </div>
+              <div class="glass-theme-status">
+                <span class="glass-theme-status-icon" aria-hidden="true"></span>
+                <span class="glass-theme-feedback" id="glass-theme-feedback" role="status" aria-live="polite">Checking native backdrop support…</span>
               </div>
             </div>
             <div class="custom-theme-editor" id="custom-theme-editor" hidden>
