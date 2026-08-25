@@ -343,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
       renderer.renderLibraryPlaylists(renderer.activeType).catch(error => console.error(error));
       if (renderer.currentTrackContext) {
         const context = renderer.currentTrackContext;
-        renderer.renderLibraryTracks(context.id, context.name, context.type).catch(error => console.error(error));
+        renderer.renderLibraryTracks(context.id, context.name, context.type, context.cover).catch(error => console.error(error));
       }
       searchManager.triggerSearch(searchInput.value.trim(), searchManager.searchPage).catch(error => console.error(error));
     }
@@ -407,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ui.updatePlayPauseButtonUI(playingState);
     }
     syncSidePlayerSnapshot(true);
-    schedulePlaybackPoll(200);
+    schedulePlaybackPoll(typeof playingState === 'boolean' ? 250 : 650);
     refreshOpenQueue();
   }
 
@@ -448,6 +448,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const previousCover = currentDisplayedTrack?.spotifyUri === currentTrack.uri
           ? currentDisplayedTrack.cover
           : null;
+        const previousContextPosition = currentDisplayedTrack?.spotifyUri === currentTrack.uri
+          ? currentDisplayedTrack.playbackContextPosition
+          : null;
+        const playbackContextUri = /^spotify:(playlist|album):/.test(state.context?.uri || '')
+          ? state.context.uri
+          : null;
         const mockTrack = {
           id: currentTrack.id,
           title: currentTrack.name || 'Unknown Track',
@@ -456,7 +462,9 @@ document.addEventListener('DOMContentLoaded', () => {
           cover: coverImages[0]?.url || previousCover || null,
           spotifyUri: currentTrack.uri,
           spotifyUrl: currentTrack.external_urls?.spotify || null,
-          spotifyType: currentTrack.type || 'track'
+          spotifyType: currentTrack.type || 'track',
+          playbackContextUri,
+          playbackContextPosition: previousContextPosition
         };
 
         if (currentTrack.id !== lastSpotifyTrackId) {
@@ -485,12 +493,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   spotifyStateInterval = setInterval(() => {
     if (!spotify.isAuthenticated || !isSpotifyPlaying || window.isScrubbingTimeline) return;
+    const previousPosition = currentSpotifyPosition;
     currentSpotifyPosition = Math.min(
       Number(window.currentSpotifyPosition) + 1000 || 0,
       currentSpotifyDuration
     );
     window.currentSpotifyPosition = currentSpotifyPosition;
     updateTimelineUI(currentSpotifyPosition, currentSpotifyDuration);
+    if (currentSpotifyDuration > 0 && previousPosition < currentSpotifyDuration && currentSpotifyPosition >= currentSpotifyDuration) {
+      schedulePlaybackPoll(250);
+    }
   }, 1000);
   schedulePlaybackPoll(1000);
 
@@ -842,9 +854,26 @@ document.addEventListener('DOMContentLoaded', () => {
         await spotify.openExternal(currentDisplayedTrack.spotifyUrl);
         return;
       }
-      if (currentDisplayedTrack?.spotifyType === 'episode') result = await spotify.resume();
-      else if (currentDisplayedTrack?.spotifyUri) result = await spotify.playTrack(currentDisplayedTrack.spotifyUri);
-      else result = await spotify.resume();
+      const activeState = await spotify.getMyPlayerState().catch(() => null);
+      const isCurrentItem = Boolean(
+        activeState?.item?.uri &&
+        currentDisplayedTrack?.spotifyUri &&
+        activeState.item.uri === currentDisplayedTrack.spotifyUri
+      );
+      if (isCurrentItem || currentDisplayedTrack?.spotifyType === 'episode') {
+        result = await spotify.resume();
+      } else if (
+        /^spotify:(playlist|album):/.test(currentDisplayedTrack?.playbackContextUri || '') &&
+        currentDisplayedTrack?.spotifyUri
+      ) {
+        result = await spotify.playContext(currentDisplayedTrack.playbackContextUri, {
+          uri: currentDisplayedTrack.spotifyUri
+        });
+      } else if (currentDisplayedTrack?.spotifyUri) {
+        result = await spotify.playTrack(currentDisplayedTrack.spotifyUri);
+      } else {
+        result = await spotify.resume();
+      }
       if (result?.external) return;
       handlePlaybackCommand(true);
     } catch (error) {
@@ -857,7 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const activeQueue = renderer.currentRenderedQueue;
       if (activeQueue && activeQueue.length > 0) {
         try {
-          const contextUri = renderer.currentContextUri;
+          const contextUri = renderer.currentTrackContext?.contextUri || renderer.currentContextUri;
           if (/^spotify:(playlist|album):/.test(contextUri || '')) {
             const result = await spotify.playContext(contextUri);
             if (result?.external) {
@@ -887,9 +916,10 @@ document.addEventListener('DOMContentLoaded', () => {
           console.error('Could not play this list:', error);
         }
       } else {
-        if (/^spotify:(playlist|album):/.test(renderer.currentContextUri || '')) {
+        const contextUri = renderer.currentTrackContext?.contextUri || renderer.currentContextUri;
+        if (/^spotify:(playlist|album):/.test(contextUri || '')) {
           try {
-            const result = await spotify.playContext(renderer.currentContextUri);
+            const result = await spotify.playContext(contextUri);
             if (result?.external) return;
             handlePlaybackCommand(true);
           } catch (error) {

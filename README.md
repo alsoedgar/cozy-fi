@@ -21,7 +21,8 @@ Cozy-Fi gives a Premium listener a focused, customizable desktop interface for t
 
 - Search Spotify and browse saved playlists, albums, artists, liked songs, top tracks, and recent listening.
 - Play through Cozy-Fi's local Spotify Connect output on Premium accounts, or use Spotify-link mode as a fallback.
-- Control play/pause, previous/next, seeking, volume, queue, likes, and playlist creation.
+- Select any playlist or album song and keep its list order for automatic advance and previous/next navigation.
+- Control play/pause, seeking, volume, queue, likes, and playlist creation.
 - Switch between the full responsive app and a resizable, pinnable side player.
 - Use Morning Lo-Fi or Soft Sunset, enlarge the typography, or create and save custom seven-color palettes.
 - Keep long libraries and result sets manageable with loading skeletons and pagination.

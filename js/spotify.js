@@ -18,6 +18,7 @@ class SpotifyClient {
     this.onAuthStatusChangeCallback = null;
     this.onErrorCallback = null;
     this.playbackCapabilityCallbacks = new Set();
+    this.playbackCommandChain = Promise.resolve();
     this.ready = this.initialize();
 
     if (!this.bridge) {
@@ -114,6 +115,13 @@ class SpotifyClient {
     }
   }
 
+  enqueuePlaybackCommand(operation) {
+    const run = () => this.withCurrentSession(operation);
+    const result = this.playbackCommandChain.then(run, run);
+    this.playbackCommandChain = result.catch(() => undefined);
+    return result;
+  }
+
   onAuthStatusChange(callback) {
     this.onAuthStatusChangeCallback = callback;
     callback(this.isAuthenticated);
@@ -158,14 +166,14 @@ class SpotifyClient {
     return capability;
   }
   getQueue() { return this.bridge.spotify.getQueue(); }
-  playTrack(trackUri) { return this.withCurrentSession(() => this.bridge.spotify.playTrack(trackUri)); }
-  playTracks(trackUris) { return this.withCurrentSession(() => this.bridge.spotify.playTracks(trackUris)); }
-  playContext(contextUri, offsetUri) { return this.withCurrentSession(() => this.bridge.spotify.playContext(contextUri, offsetUri)); }
-  pause() { return this.withCurrentSession(() => this.bridge.spotify.pause()); }
-  resume() { return this.withCurrentSession(() => this.bridge.spotify.resume()); }
-  next() { return this.withCurrentSession(() => this.bridge.spotify.next()); }
-  prev() { return this.withCurrentSession(() => this.bridge.spotify.previous()); }
-  seek(positionMs) { return this.withCurrentSession(() => this.bridge.spotify.seek(positionMs)); }
+  playTrack(trackUri) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.playTrack(trackUri)); }
+  playTracks(trackUris) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.playTracks(trackUris)); }
+  playContext(contextUri, offset) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.playContext(contextUri, offset)); }
+  pause() { return this.enqueuePlaybackCommand(() => this.bridge.spotify.pause()); }
+  resume() { return this.enqueuePlaybackCommand(() => this.bridge.spotify.resume()); }
+  next() { return this.enqueuePlaybackCommand(() => this.bridge.spotify.next()); }
+  prev() { return this.enqueuePlaybackCommand(() => this.bridge.spotify.previous()); }
+  seek(positionMs) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.seek(positionMs)); }
   setVolume(volumePercent) { return this.withCurrentSession(() => this.bridge.spotify.setVolume(volumePercent)); }
   likeTrack(trackId) { return this.withCurrentSession(() => this.bridge.spotify.likeTrack(trackId)); }
   unlikeTrack(trackId) { return this.withCurrentSession(() => this.bridge.spotify.unlikeTrack(trackId)); }
@@ -177,4 +185,5 @@ class SpotifyClient {
   }
 }
 
-window.SpotifyClient = SpotifyClient;
+if (typeof window !== 'undefined') window.SpotifyClient = SpotifyClient;
+if (typeof module !== 'undefined' && module.exports) module.exports = SpotifyClient;

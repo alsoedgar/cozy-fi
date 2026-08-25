@@ -1,4 +1,8 @@
 // Cozy-Fi Render Engine Module
+const PlaybackContext = typeof window !== 'undefined'
+  ? window.CozyPlaybackContext
+  : require('./playback-context');
+
 class RenderEngine {
   constructor(audioEngine, spotifyClient, elements, onTrackSelectCallback) {
     this.audio = audioEngine;
@@ -158,7 +162,15 @@ class RenderEngine {
     const contextChanged = !this.currentTrackContext ||
       this.currentTrackContext.id !== itemId || this.currentTrackContext.type !== itemType;
     if (contextChanged) this.trackPage = 1;
-    this.currentTrackContext = { id: itemId, name: itemName, type: itemType };
+    const playbackContextUri = PlaybackContext.resolveContextUri(itemType, itemId, this.currentContextUri);
+    this.currentContextUri = playbackContextUri;
+    this.currentTrackContext = {
+      id: itemId,
+      name: itemName,
+      type: itemType,
+      contextUri: playbackContextUri,
+      cover: itemCoverUrl
+    };
     this.renderTrackSkeletons();
     this.hidePagination(this.trackPaginationEl);
     this.currentRenderedQueue = [];
@@ -223,7 +235,7 @@ class RenderEngine {
       metaEl.textContent = tracks.length >= 500
         ? `${tracks.length} songs shown (display limit)`
         : `${tracks.length} songs`;
-      const playQueue = tracks.map(t => {
+      const playQueue = tracks.map((t, contextIndex) => {
         if (!t) return null;
         const artistName = t.artists && Array.isArray(t.artists) ? t.artists.map(a => a.name).join(', ') : 'Unknown';
         const albumName = t.album ? t.album.name : 'Single';
@@ -239,7 +251,11 @@ class RenderEngine {
           isSpotify: true,
           spotifyUri: t.uri,
           spotifyUrl: t.external_urls?.spotify || null,
-          spotifyType: t.type || 'track'
+          spotifyType: t.type || 'track',
+          playbackContextUri,
+          playbackContextPosition: playbackContextUri
+            ? (Number.isSafeInteger(t.cozy_context_position) ? t.cozy_context_position : contextIndex)
+            : null
         };
       }).filter(t => t);
 
@@ -306,11 +322,11 @@ class RenderEngine {
       });
 
       const playRow = async () => {
-        const activeQueue = playQueue.slice(idx).map(item => item.spotifyUri).filter(Boolean);
         try {
-          const result = /^spotify:(playlist|album):/.test(this.currentContextUri || '')
-            ? await this.spotify.playContext(this.currentContextUri, trackData.spotifyUri)
-            : await this.spotify.playTracks(activeQueue.slice(0, 100));
+          const request = PlaybackContext.createPlaybackRequest(trackData, playQueue, idx);
+          const result = request.type === 'context'
+            ? await this.spotify.playContext(request.contextUri, request.offset)
+            : await this.spotify.playTracks(request.uris);
           this.onTrackSelectCallback(trackData, true, Boolean(result?.external));
         } catch (error) {
           console.error('Could not start Spotify playback:', error);

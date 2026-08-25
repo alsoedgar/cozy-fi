@@ -7,6 +7,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { spawn } = require('child_process');
 const librespotManifest = require('./librespot-checksums.json');
+const { normalizeContextOffset } = require('./js/playback-context');
 
 const SPOTIFY_API_BASE = 'https://api.spotify.com/';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -1521,6 +1522,11 @@ async function runSmokeTest() {
         const userCardRect = sidebar.querySelector('.user-card').getBoundingClientRect();
         const sidebarEndReachable = userCardRect.bottom <= sidebarRect.bottom + 2;
         document.getElementById('sidebar-toggle').click();
+        const playbackContextRequest = window.CozyPlaybackContext?.createPlaybackRequest({
+          spotifyUri: 'spotify:track:smokeTrack',
+          playbackContextUri: 'spotify:playlist:smokePlaylist',
+          playbackContextPosition: 3
+        }, [], 0);
         const checks = {
           title: document.title === 'Cozy-Fi',
           api: Boolean(window.cozyApi),
@@ -1532,6 +1538,12 @@ async function runSmokeTest() {
           sidePlayerToggle: Boolean(document.getElementById('side-player-toggle')),
           pagination: ['liked-tracks-pagination', 'library-grid-pagination', 'search-pagination'].every(id => Boolean(document.getElementById(id))),
           capability: Boolean(capability && typeof capability.mode === 'string' && typeof capability.preference === 'string'),
+          playbackContext: Boolean(
+            playbackContextRequest?.type === 'context' &&
+            playbackContextRequest.contextUri === 'spotify:playlist:smokePlaylist' &&
+            playbackContextRequest.offset?.position === 3 &&
+            playbackContextRequest.offset?.uri === 'spotify:track:smokeTrack'
+          ),
           contentAbovePlayer: document.querySelector('.app-container').getBoundingClientRect().bottom <= document.querySelector('.player-bar').getBoundingClientRect().top + 1,
           compactHome: viewFits('home'),
           compactSearch: viewFits('search'),
@@ -1843,8 +1855,19 @@ function registerIpcHandlers() {
     const playlistId = normalizeSpotifyId(rawPlaylistId, 'playlist ID');
     const entries = await fetchAllPages(`v1/playlists/${playlistId}/items?limit=50`, data => data?.items);
     return entries
-      .map(entry => entry?.item || entry?.track)
-      .filter(item => item?.type === 'track' && !item?.is_local && /^spotify:track:/.test(item?.uri || ''));
+      .map((entry, contextPosition) => ({
+        item: entry?.item || entry?.track,
+        contextPosition
+      }))
+      .filter(entry => (
+        entry.item?.type === 'track' &&
+        !entry.item?.is_local &&
+        /^spotify:track:/.test(entry.item?.uri || '')
+      ))
+      .map(entry => ({
+        ...entry.item,
+        cozy_context_position: entry.contextPosition
+      }));
   });
   ipcMain.handle('get-albums', async () => {
     const entries = await fetchAllPages('v1/me/albums?limit=50', data => data?.items);
@@ -1947,9 +1970,15 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('play-context', async (_event, rawContextUri, rawOffsetUri) => {
     const contextUri = normalizeSpotifyUri(rawContextUri, ['playlist', 'album', 'artist']);
-    if (usesExternalPlayback()) return openSpotifyUriExternally(contextUri, ['playlist', 'album', 'artist']);
+    const offset = normalizeContextOffset(rawOffsetUri);
+    if (usesExternalPlayback()) {
+      return offset?.uri
+        ? openSpotifyUriExternally(offset.uri, ['track'])
+        : openSpotifyUriExternally(contextUri, ['playlist', 'album', 'artist']);
+    }
     const body = { context_uri: contextUri };
-    if (rawOffsetUri) body.offset = { uri: normalizeSpotifyUri(rawOffsetUri) };
+    if (offset?.position !== undefined) body.offset = { position: offset.position };
+    else if (offset?.uri) body.offset = { uri: normalizeSpotifyUri(offset.uri, ['track']) };
     const endpoint = `v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`;
     return fetchWebApi(endpoint, 'PUT', body);
   });

@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('cozyApi', {
     addToQueue: trackUri => ipcRenderer.invoke('add-to-queue', trackUri),
     playTrack: trackUri => ipcRenderer.invoke('play-track', trackUri),
     playTracks: trackUris => ipcRenderer.invoke('play-tracks', trackUris),
-    playContext: (contextUri, offsetUri) => ipcRenderer.invoke('play-context', contextUri, offsetUri),
+    playContext: (contextUri, offset) => ipcRenderer.invoke('play-context', contextUri, offset),
     pause: () => ipcRenderer.invoke('pause-track'),
     resume: () => ipcRenderer.invoke('resume-track'),
     next: () => ipcRenderer.invoke('next-track'),
