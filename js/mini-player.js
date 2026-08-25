@@ -83,6 +83,15 @@ document.addEventListener('DOMContentLoaded', () => {
       getPosition: () => state.positionMs,
       canSync: () => state.capability?.mode === 'standalone',
       isPlayerViewVisible: () => !document.hidden,
+      canSeek: () => (
+        state.capability?.mode === 'standalone' && state.durationMs > 0 && !state.controlBusy
+      ),
+      onSeek: positionMs => seekToLyric(positionMs),
+      onPanelChange: panel => {
+        const lyricsActive = panel === 'lyrics';
+        document.body.classList.toggle('is-lyrics-mode', lyricsActive);
+        elements.window.dataset.viewMode = lyricsActive ? 'lyrics' : 'cover';
+      },
       promptModeLabel: 'LRCLIB · NO API KEY',
       importLocalLabel: 'LOCAL',
       replaceLocalLabel: 'LOCAL'
@@ -613,6 +622,23 @@ document.addEventListener('DOMContentLoaded', () => {
       render();
       if (failureMessage) setMessage(failureMessage);
     }
+  }
+
+  async function seekToLyric(rawPositionMs) {
+    if (state.capability.mode !== 'standalone' || state.durationMs <= 0) {
+      setMessage('LINE SEEKING NEEDS STANDALONE PLAYBACK');
+      return false;
+    }
+    const positionMs = Math.min(
+      state.durationMs,
+      Math.max(0, Math.floor(Number(rawPositionMs) || 0))
+    );
+    state.positionMs = positionMs;
+    state.scrubbing = false;
+    renderTimeline();
+    setMessage(`JUMPING TO ${formatTime(positionMs)}`);
+    await runControl(() => api.spotify.seek(positionMs));
+    return true;
   }
 
   elements.play.addEventListener('click', () => {

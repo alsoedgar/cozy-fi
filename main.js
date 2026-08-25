@@ -2215,14 +2215,27 @@ async function runSmokeTest() {
           lyricsRect.top >= stageRect.top - 1 &&
           lyricsRect.right <= stageRect.right + 1 &&
           lyricsRect.bottom <= stageRect.bottom + 1;
-        const compactLyricsPlaybackVisible = ['.mini-track-area', '.mini-progress-area', '.mini-controls']
-          .every(selector => {
-            const elementRect = document.querySelector(selector).getBoundingClientRect();
-            return elementRect.width > 0 && elementRect.height > 0 && elementRect.bottom <= window.innerHeight + 1;
-          });
+        const compactLyricsOnly = document.body.classList.contains('is-lyrics-mode') &&
+          ['.mini-track-area', '.mini-progress-area', '.mini-controls', '.mini-footer-row']
+            .every(selector => getComputedStyle(document.querySelector(selector)).display === 'none');
+        const tabListRect = document.querySelector('.mini-view-tabs').getBoundingClientRect();
+        const compactModeSwitchVisible = tabListRect.width > 0 && tabListRect.height > 0 &&
+          tabListRect.right <= window.innerWidth + 1;
+        const seekLine = document.querySelector('#mini-lyrics-scroll button.lyrics-line.is-seekable');
+        const seekTarget = Number(seekLine?.dataset.timeMs);
+        if (seekLine && !seekLine.disabled) seekLine.click();
+        const compactLyricSeek = Number.isFinite(seekTarget) &&
+          /^Jump to [0-9]+:[0-9]{2}:/.test(seekLine?.getAttribute('aria-label') || '') &&
+          await waitFor(() => (
+            document.getElementById('mini-progress').value === String(seekTarget) &&
+            seekLine.classList.contains('is-active')
+          ));
         coverTab.click();
         const lyricsRoundTrip = !artworkPanel.hidden && lyricsPanel.hidden &&
-          coverTab.getAttribute('aria-selected') === 'true';
+          coverTab.getAttribute('aria-selected') === 'true' &&
+          !document.body.classList.contains('is-lyrics-mode') &&
+          ['.mini-track-area', '.mini-progress-area', '.mini-controls']
+            .every(selector => getComputedStyle(document.querySelector(selector)).display !== 'none');
         const beforeResize = { width: window.outerWidth, height: window.outerHeight };
         const resized = await window.cozyApi.sidePlayer.resizeBy({ width: 24, height: 24 });
         const resizeDeadline = Date.now() + 1000;
@@ -2257,7 +2270,9 @@ async function runSmokeTest() {
           lyricsLazyBeforeOpen,
           compactLyrics,
           compactLyricsFits,
-          compactLyricsPlaybackVisible,
+          compactLyricsOnly,
+          compactModeSwitchVisible,
+          compactLyricSeek,
           lyricsRoundTrip,
           resizeGrip: Boolean(document.getElementById('mini-resize')),
           resizable: Boolean(resized) && afterResize.width >= beforeResize.width + 20 && afterResize.height >= beforeResize.height + 20,
@@ -2595,7 +2610,9 @@ function registerIpcHandlers() {
   ipcMain.handle('next-track', () => fetchWebApi(`v1/me/player/next?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST'));
   ipcMain.handle('prev-track', () => fetchWebApi(`v1/me/player/previous?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST'));
   ipcMain.handle('seek-track', (_event, rawPositionMs) => {
-    const params = new URLSearchParams({ position_ms: String(Math.max(0, Math.floor(Number(rawPositionMs) || 0))) });
+    const positionMs = Math.max(0, Math.floor(Number(rawPositionMs) || 0));
+    if (IS_SMOKE_TEST) return { positionMs };
+    const params = new URLSearchParams({ position_ms: String(positionMs) });
     params.set('device_id', requirePlaybackDevice());
     return fetchWebApi(`v1/me/player/seek?${params}`, 'PUT');
   });

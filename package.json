@@ -1,7 +1,7 @@
 {
   "name": "cozy-fi",
   "productName": "Cozy-Fi",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "A cross-platform retro-cozy companion player for Spotify Premium.",
   "author": "Cozy-Fi contributors",
   "private": true,

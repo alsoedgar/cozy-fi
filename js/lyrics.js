@@ -344,6 +344,11 @@
     }
   }
 
+  function formatLyricTime(rawMilliseconds) {
+    const totalSeconds = Math.max(0, Math.floor((Number(rawMilliseconds) || 0) / 1000));
+    return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+  }
+
   class LyricsController {
     constructor(bridge, elements, options = {}) {
       this.bridge = bridge;
@@ -418,6 +423,7 @@
       if (this.elements.lyricsTab) this.elements.lyricsTab.tabIndex = lyricsActive ? 0 : -1;
       if (this.elements.artworkPanel) this.elements.artworkPanel.hidden = lyricsActive;
       if (this.elements.lyricsPanel) this.elements.lyricsPanel.hidden = !lyricsActive;
+      this.options.onPanelChange?.(this.panel);
       if (focus) (lyricsActive ? this.elements.lyricsTab : this.elements.artworkTab)?.focus();
       if (lyricsActive && !this.model) this.load();
     }
@@ -598,12 +604,13 @@
       const prefix = this.model?.record?.source === 'local'
         ? 'LOCAL LRC'
         : this.model?.record?.matchType === 'expanded' ? 'LRCLIB BROAD MATCH' : 'SYNCED';
+      const seekHint = typeof this.options.onSeek === 'function' && canSync ? ' · SELECT A LINE TO JUMP' : '';
       if (!canSync) {
         this.elements.modeLabel.textContent = `${prefix} · MANUAL SCROLL IN SPOTIFY APP MODE`;
       } else if (this.autoFollow) {
-        this.elements.modeLabel.textContent = `${prefix} · FOLLOWING PLAYBACK`;
+        this.elements.modeLabel.textContent = `${prefix} · FOLLOWING PLAYBACK${seekHint}`;
       } else {
-        this.elements.modeLabel.textContent = `${prefix} · MANUAL SCROLL · SELECT FOLLOW`;
+        this.elements.modeLabel.textContent = `${prefix} · MANUAL SCROLL · SELECT FOLLOW${seekHint}`;
       }
     }
 
@@ -659,12 +666,33 @@
       this.elements.scroller.hidden = false;
       const fragment = document.createDocumentFragment();
       this.model.lines.forEach(line => {
-        const row = document.createElement('div');
-        row.className = `lyrics-line${line.isGap ? ' is-gap' : ''}`;
+        const seekable = !line.isGap && typeof this.options.onSeek === 'function';
+        const row = document.createElement(seekable ? 'button' : 'div');
+        row.className = `lyrics-line${line.isGap ? ' is-gap' : ''}${seekable ? ' is-seekable' : ''}`;
         row.dataset.timeMs = String(line.timeMs);
+        if (seekable) {
+          const timestamp = formatLyricTime(line.timeMs);
+          row.type = 'button';
+          row.disabled = !this.options.canSeek?.();
+          row.setAttribute('aria-label', `Jump to ${timestamp}: ${line.text || 'music'}`);
+          row.title = row.disabled ? 'Seeking is available during standalone playback' : `Jump to ${timestamp}`;
+          row.addEventListener('click', async () => {
+            if (!this.options.canSeek?.()) return;
+            this.autoFollow = true;
+            if (this.elements.followButton) this.elements.followButton.hidden = true;
+            this.updatePosition(line.timeMs, Boolean(this.options.canSync?.()));
+            this.centerActiveLine('smooth');
+            row.classList.add('is-seeking');
+            try {
+              await this.options.onSeek(line.timeMs);
+            } finally {
+              row.classList.remove('is-seeking');
+            }
+          });
+        }
         const marker = document.createElement('span');
         marker.className = 'lyrics-now-marker';
-        marker.textContent = 'NOW';
+        marker.textContent = seekable ? formatLyricTime(line.timeMs) : 'NOW';
         marker.setAttribute('aria-hidden', 'true');
         const text = document.createElement('span');
         text.className = 'lyrics-line-text';
@@ -693,6 +721,14 @@
     updatePosition(positionMs, canSync = true) {
       if (this.model?.kind !== 'synced' || this.lineElements.length === 0) return;
       this.updateModeLabel(canSync);
+      const canSeek = Boolean(this.options.canSeek?.());
+      this.lineElements.forEach(line => {
+        if (line.tagName !== 'BUTTON') return;
+        line.disabled = !canSeek;
+        line.title = canSeek
+          ? `Jump to ${formatLyricTime(line.dataset.timeMs)}`
+          : 'Seeking is available during standalone playback';
+      });
       if (!canSync) {
         this.lineElements.forEach(line => line.classList.remove('is-active', 'is-past'));
         this.activeLineIndex = -2;
