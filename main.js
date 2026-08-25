@@ -1488,7 +1488,11 @@ function installNavigationGuards(window, trustedUrl = TRUSTED_RENDERER_URL) {
 
 async function runSmokeTest() {
   try {
+    // Hidden BrowserWindows can defer viewport layout on macOS runners. Exercise
+    // the same visible-window path users get before measuring responsive views.
+    mainWindow.showInactive();
     mainWindow.setSize(360, 520);
+    await new Promise(resolve => setTimeout(resolve, 150));
     const result = await mainWindow.webContents.executeJavaScript(`
       new Promise(resolve => setTimeout(async () => {
         const activate = view => {
