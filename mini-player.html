@@ -24,18 +24,41 @@
     <section class="mini-player-panel" aria-labelledby="mini-track-title">
       <div class="mini-status-row">
         <span class="mini-eyebrow">SIDE A · NOW BREWING</span>
-        <span class="mini-capability" id="mini-capability">CHECKING</span>
+        <div class="mini-status-actions">
+          <div class="mini-view-tabs" role="tablist" aria-label="Side player view">
+            <button class="mini-view-tab active" id="mini-cover-tab" type="button" role="tab" aria-selected="true" aria-controls="mini-art-frame">COVER</button>
+            <button class="mini-view-tab" id="mini-lyrics-tab" type="button" role="tab" aria-selected="false" aria-controls="mini-lyrics-panel" tabindex="-1">LYRICS</button>
+          </div>
+          <span class="mini-capability" id="mini-capability">CHECKING</span>
+        </div>
       </div>
 
-      <div class="mini-art-frame" id="mini-art-frame">
-        <div class="mini-art-skeleton ghost" aria-hidden="true"></div>
-        <img id="mini-cover" alt="" referrerpolicy="no-referrer" decoding="async" draggable="false" hidden>
-        <div class="mini-cover-fallback" id="mini-cover-fallback" hidden aria-hidden="true">
-          <div class="mini-record"><span>CF</span></div>
-          <div class="mini-steam steam-one"></div>
-          <div class="mini-steam steam-two"></div>
+      <div class="mini-stage">
+        <div class="mini-art-frame" id="mini-art-frame" role="tabpanel" aria-labelledby="mini-cover-tab">
+          <div class="mini-art-skeleton ghost" aria-hidden="true"></div>
+          <img id="mini-cover" alt="" referrerpolicy="no-referrer" decoding="async" draggable="false" hidden>
+          <div class="mini-cover-fallback" id="mini-cover-fallback" hidden aria-hidden="true">
+            <div class="mini-record"><span>CF</span></div>
+            <div class="mini-steam steam-one"></div>
+            <div class="mini-steam steam-two"></div>
+          </div>
+          <span class="mini-art-label" aria-hidden="true">COZY MIX</span>
         </div>
-        <span class="mini-art-label" aria-hidden="true">COZY MIX</span>
+
+        <section class="mini-lyrics-frame" id="mini-lyrics-panel" role="tabpanel" aria-labelledby="mini-lyrics-tab" hidden>
+          <header class="mini-lyrics-toolbar">
+            <span class="mini-lyrics-state" id="mini-lyrics-state" data-state="idle">OPTIONAL</span>
+            <span class="mini-lyrics-mode" id="mini-lyrics-mode">LRCLIB · NO API KEY</span>
+            <button class="mini-lyrics-action" id="mini-lyrics-follow" type="button" hidden>FOLLOW</button>
+          </header>
+          <div class="mini-lyrics-scroll" id="mini-lyrics-scroll" tabindex="0" aria-label="Song lyrics"></div>
+          <div class="mini-lyrics-message" id="mini-lyrics-message" role="status">
+            <span class="mini-lyrics-message-icon" aria-hidden="true">♪</span>
+            <strong id="mini-lyrics-message-title">Choose a song first.</strong>
+            <span id="mini-lyrics-message-description">Select a track to check LRCLIB.</span>
+            <button class="mini-lyrics-action" id="mini-lyrics-retry" type="button" hidden>TRY AGAIN</button>
+          </div>
+        </section>
       </div>
 
       <div class="mini-track-area" aria-live="polite">
@@ -70,6 +93,7 @@
     </section>
     <button type="button" class="resize-corner" id="mini-resize" aria-label="Resize side player" title="Drag to resize. Arrow keys resize when focused."></button>
   </main>
+  <script src="js/lyrics.js"></script>
   <script src="js/mini-player.js"></script>
 </body>
 </html>

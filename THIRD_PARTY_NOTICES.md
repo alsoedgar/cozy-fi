@@ -23,4 +23,4 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## LRCLIB
 
-Cozy-Fi can make optional, keyless requests to the external [LRCLIB service](https://lrclib.net/docs) when a user opens the Lyrics tab. LRCLIB code, database contents, and lyrics are not bundled with this repository. Lyrics remain the property of their respective rightsholders and are not relicensed under Cozy-Fi's MIT license. Service availability, lyric availability, and timing accuracy are controlled by LRCLIB and its contributors.
+Cozy-Fi can make optional, keyless requests to the external [LRCLIB service](https://lrclib.net/docs) when a user opens a Lyrics tab in the full or side player. LRCLIB code, database contents, and lyrics are not bundled with this repository. Lyrics remain the property of their respective rightsholders and are not relicensed under Cozy-Fi's MIT license. Service availability, lyric availability, and timing accuracy are controlled by LRCLIB and its contributors.

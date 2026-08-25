@@ -4,7 +4,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const elements = {
     window: document.getElementById('mini-window'),
     titlebar: document.getElementById('mini-titlebar'),
+    coverTab: document.getElementById('mini-cover-tab'),
+    lyricsTab: document.getElementById('mini-lyrics-tab'),
     artFrame: document.getElementById('mini-art-frame'),
+    lyricsPanel: document.getElementById('mini-lyrics-panel'),
+    lyricsState: document.getElementById('mini-lyrics-state'),
+    lyricsMode: document.getElementById('mini-lyrics-mode'),
+    lyricsScroll: document.getElementById('mini-lyrics-scroll'),
+    lyricsMessage: document.getElementById('mini-lyrics-message'),
+    lyricsMessageTitle: document.getElementById('mini-lyrics-message-title'),
+    lyricsMessageDescription: document.getElementById('mini-lyrics-message-description'),
+    lyricsRetry: document.getElementById('mini-lyrics-retry'),
+    lyricsFollow: document.getElementById('mini-lyrics-follow'),
     cover: document.getElementById('mini-cover'),
     coverFallback: document.getElementById('mini-cover-fallback'),
     title: document.getElementById('mini-track-title'),
@@ -46,6 +57,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const ARTWORK_RETRY_DELAY_MS = 120_000;
   let resizePointerId = null;
   let resizing = false;
+  const LyricsController = window.CozyLyrics?.LyricsController;
+  const lyricsController = LyricsController
+    ? new LyricsController(api.lyrics, {
+      artworkTab: elements.coverTab,
+      lyricsTab: elements.lyricsTab,
+      artworkPanel: elements.artFrame,
+      lyricsPanel: elements.lyricsPanel,
+      badge: elements.lyricsState,
+      modeLabel: elements.lyricsMode,
+      scroller: elements.lyricsScroll,
+      message: elements.lyricsMessage,
+      messageTitle: elements.lyricsMessageTitle,
+      messageDescription: elements.lyricsMessageDescription,
+      retryButton: elements.lyricsRetry,
+      followButton: elements.lyricsFollow
+    }, {
+      getPosition: () => state.positionMs,
+      canSync: () => state.capability?.mode === 'standalone',
+      isPlayerViewVisible: () => !document.hidden,
+      promptModeLabel: 'LRCLIB · NO API KEY'
+    })
+    : null;
 
   function normalizeHex(value, fallback) {
     return /^#[0-9a-f]{6}$/i.test(value || '') ? value.toLowerCase() : fallback;
@@ -299,12 +332,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderTimeline() {
     const duration = Math.max(0, Number(state.durationMs) || 0);
     const position = Math.min(duration || Number.MAX_SAFE_INTEGER, Math.max(0, Number(state.positionMs) || 0));
+    const displayPosition = state.scrubbing ? Math.max(0, Number(elements.progress.value) || 0) : position;
     if (!state.scrubbing) elements.progress.value = String(position);
     elements.progress.max = String(duration);
     elements.progress.style.setProperty('--progress-percent', duration > 0 ? `${(position / duration) * 100}%` : '0%');
-    elements.currentTime.textContent = formatTime(state.scrubbing ? elements.progress.value : position);
+    elements.currentTime.textContent = formatTime(displayPosition);
     elements.totalTime.textContent = formatTime(duration);
     elements.progress.disabled = state.capability.mode !== 'standalone' || duration <= 0 || state.controlBusy;
+    lyricsController?.updatePosition(displayPosition, state.capability.mode === 'standalone');
   }
 
   function renderCover() {
@@ -373,6 +408,10 @@ document.addEventListener('DOMContentLoaded', () => {
         : 'Connect Spotify in the full app to begin.';
     }
     renderCover();
+    lyricsController?.setTrack(state.track ? {
+      ...state.track,
+      durationMs: state.durationMs
+    } : null);
 
     const local = state.authenticated && mode === 'standalone';
     const external = state.authenticated && mode === 'external';
@@ -473,6 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const position = Math.min(duration, Math.max(0, Number(elements.progress.value) || 0));
     elements.progress.style.setProperty('--progress-percent', duration > 0 ? `${(position / duration) * 100}%` : '0%');
     elements.currentTime.textContent = formatTime(position);
+    lyricsController?.updatePosition(position, state.capability.mode === 'standalone');
   });
   elements.progress.addEventListener('change', () => {
     const position = Math.max(0, Number(elements.progress.value) || 0);
@@ -584,7 +624,10 @@ document.addEventListener('DOMContentLoaded', () => {
   api.events.onPlaybackError(message => setMessage(message || 'LOCAL PLAYER ERROR'));
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshPlayback();
+    if (!document.hidden) {
+      lyricsController?.onPlayerViewVisible();
+      refreshPlayback();
+    }
   });
 
   async function initialize() {

@@ -1834,6 +1834,9 @@ async function runSmokeTest() {
       isPlaying: false, positionMs: 45000, durationMs: 180000, loading: false
     })`, true);
     const mainArtworkPreserved = Boolean(sidePlayerSnapshot?.track?.cover);
+    compactWindow.webContents.send('spotify-playback-capability', {
+      mode: 'standalone', tier: 'premium', preference: 'auto'
+    });
     compactWindow.webContents.send('side-player-snapshot', {
       ...sidePlayerSnapshot,
       track: { ...sidePlayerSnapshot.track, cover: null }
@@ -1853,6 +1856,39 @@ async function runSmokeTest() {
         const proxiedArtwork = artworkProbeUrl
           ? await window.cozyApi.sidePlayer.resolveArtwork(artworkProbeUrl)
           : null;
+        const coverTab = document.getElementById('mini-cover-tab');
+        const lyricsTab = document.getElementById('mini-lyrics-tab');
+        const artworkPanel = document.getElementById('mini-art-frame');
+        const lyricsPanel = document.getElementById('mini-lyrics-panel');
+        const lyricsLazyBeforeOpen = document.getElementById('mini-lyrics-state').textContent === 'OPTIONAL' &&
+          document.querySelectorAll('#mini-lyrics-scroll .lyrics-line').length === 0;
+        lyricsTab.click();
+        const lyricsDeadline = Date.now() + 1000;
+        while (document.getElementById('mini-lyrics-state').textContent !== 'SYNCED' && Date.now() < lyricsDeadline) {
+          await new Promise(done => setTimeout(done, 25));
+        }
+        const lyricsRect = lyricsPanel.getBoundingClientRect();
+        const stageRect = document.querySelector('.mini-stage').getBoundingClientRect();
+        const compactLyrics = Boolean(
+          !lyricsPanel.hidden &&
+          artworkPanel.hidden &&
+          lyricsTab.getAttribute('aria-selected') === 'true' &&
+          document.querySelectorAll('#mini-lyrics-scroll .lyrics-line').length === 2 &&
+          document.querySelectorAll('#mini-lyrics-scroll .lyrics-line.is-active').length === 1 &&
+          getComputedStyle(document.getElementById('mini-lyrics-scroll')).overflowY === 'auto'
+        );
+        const compactLyricsFits = lyricsRect.left >= stageRect.left - 1 &&
+          lyricsRect.top >= stageRect.top - 1 &&
+          lyricsRect.right <= stageRect.right + 1 &&
+          lyricsRect.bottom <= stageRect.bottom + 1;
+        const compactLyricsPlaybackVisible = ['.mini-track-area', '.mini-progress-area', '.mini-controls']
+          .every(selector => {
+            const elementRect = document.querySelector(selector).getBoundingClientRect();
+            return elementRect.width > 0 && elementRect.height > 0 && elementRect.bottom <= window.innerHeight + 1;
+          });
+        coverTab.click();
+        const lyricsRoundTrip = !artworkPanel.hidden && lyricsPanel.hidden &&
+          coverTab.getAttribute('aria-selected') === 'true';
         const beforeResize = { width: window.outerWidth, height: window.outerHeight };
         const resized = await window.cozyApi.sidePlayer.resizeBy({ width: 24, height: 24 });
         await new Promise(done => setTimeout(done, 100));
@@ -1862,7 +1898,7 @@ async function runSmokeTest() {
           title: document.title === 'Cozy-Fi Side Player',
           api: Boolean(window.cozyApi?.sidePlayer),
           loaded: !document.body.classList.contains('is-loading'),
-          controls: ['mini-play', 'mini-previous', 'mini-next', 'mini-progress', 'mini-pin', 'mini-hide']
+          controls: ['mini-play', 'mini-previous', 'mini-next', 'mini-progress', 'mini-pin', 'mini-hide', 'mini-cover-tab', 'mini-lyrics-tab']
             .every(id => Boolean(document.getElementById(id))),
           skeleton: Boolean(document.querySelector('.mini-art-skeleton.ghost') && document.querySelector('.mini-copy-skeleton .ghost')),
           themeSync: getComputedStyle(document.body).getPropertyValue('--bg-primary').trim() === '#f2e9dc' && document.body.classList.contains('font-enlarged'),
@@ -1875,6 +1911,11 @@ async function runSmokeTest() {
             proxiedArtwork.includes(';base64,')
           ),
           pinRoundTrip: unpinned?.pinned === false && repinned?.pinned === true,
+          lyricsLazyBeforeOpen,
+          compactLyrics,
+          compactLyricsFits,
+          compactLyricsPlaybackVisible,
+          lyricsRoundTrip,
           resizeGrip: Boolean(document.getElementById('mini-resize')),
           resizable: Boolean(resized) && afterResize.width >= beforeResize.width + 20 && afterResize.height >= beforeResize.height + 20,
           headerActionsFit,

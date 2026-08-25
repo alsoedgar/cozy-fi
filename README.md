@@ -23,7 +23,7 @@ Cozy-Fi gives a Premium listener a focused, customizable desktop interface for t
 - Play through Cozy-Fi's local Spotify Connect output on Premium accounts, or use Spotify-link mode as a fallback.
 - Select any playlist or album song and keep its list order for automatic advance and previous/next navigation.
 - Control play/pause, seeking, volume, queue, likes, and playlist creation.
-- Open an optional lyrics tab with synchronized line highlighting when LRCLIB has timed lyrics, or a scrollable reading view when only plain lyrics are available.
+- Open optional lyrics in either player with synchronized line highlighting when LRCLIB has timed lyrics, or a scrollable reading view when only plain lyrics are available.
 - Switch between the full responsive app and a resizable, pinnable side player.
 - Use Morning Lo-Fi or Soft Sunset, enlarge the typography, or create and save custom seven-color palettes.
 - Keep long libraries and result sets manageable with loading skeletons and pagination.
@@ -81,7 +81,7 @@ Settings includes three playback choices:
 
 ## Lyrics
 
-Open the full player and select **LYRICS**. Cozy-Fi uses [LRCLIB](https://lrclib.net/docs), which is free to access and does not require an API key or a separate user account.
+Open the full player or side player and select **LYRICS**. Cozy-Fi uses [LRCLIB](https://lrclib.net/docs), which is free to access and does not require an API key or a separate user account.
 
 - A synchronized result follows playback, centers the current line, and marks it with a high-contrast **NOW** treatment. Scroll manually at any time; select **FOLLOW** to return to the current line.
 - A plain result remains fully scrollable when timing data is unavailable.
@@ -92,7 +92,7 @@ Lyrics are optional and are fetched only after the Lyrics tab is opened for a se
 
 ## Side player
 
-Open **MENU → Side Player** to switch into the compact player; the full window hides so only the side player remains. Its live Spotify artwork, timeline, play/pause, previous, and next controls use the same playback session as the full app. Drag the lower-right grip to resize it, or focus the grip and use the arrow keys. **PIN** toggles always-on-top, **FULL** (or a title-bar double-click) hides the compact window and restores the full app, and **HIDE** minimizes the side player so it can be restored from the taskbar or dock. Its size and screen position are remembered.
+Open **MENU → Side Player** to switch into the compact player; the full window hides so only the side player remains. Its live Spotify artwork, timeline, play/pause, previous, and next controls use the same playback session as the full app. Select **COVER** or **LYRICS** in the compact header without hiding the track and playback controls. The side-player lyrics view reuses the same lazy LRCLIB lookup and session cache: timed lines follow standalone playback, while plain lyrics and Spotify App mode remain manually scrollable. Drag the lower-right grip to resize it, or focus the grip and use the arrow keys. **PIN** toggles always-on-top, **FULL** (or a title-bar double-click) hides the compact window and restores the full app, and **HIDE** minimizes the side player so it can be restored from the taskbar or dock. Its size and screen position are remembered.
 
 Morning Lo-Fi, Soft Sunset, enlarged type, and custom palette previews are mirrored into the side player immediately. Standalone mode provides all compact controls; Spotify App mode shows the selected track with an **OPEN** action because transport controls remain in Spotify.
 
@@ -118,7 +118,7 @@ npm start
 
 `npm run build:librespot` builds the pinned, patched playback engine for the current operating system and CPU architecture, records its SHA-256 in `librespot-checksums.json`, and marks it executable on macOS/Linux. Native playback binaries cannot be safely cross-compiled by the packaging command: each package must be created on a matching host.
 
-`npm test` runs JavaScript syntax checks, playback-context and LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the lyrics IPC/tab/scrolling path, side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
+`npm test` runs JavaScript syntax checks, playback-context and LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the lyrics IPC/tab/scrolling path in both players, side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
 
 To create and verify an unpacked build for the current host and architecture:
 

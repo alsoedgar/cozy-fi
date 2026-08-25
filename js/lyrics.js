@@ -251,6 +251,9 @@
     renderPrompt() {
       this.updateHeading();
       this.setBadge(this.track ? 'OPTIONAL' : 'WAITING', 'idle');
+      if (this.elements.modeLabel) {
+        this.elements.modeLabel.textContent = this.options.promptModeLabel || 'LRCLIB · OPTIONAL LOOKUP';
+      }
       this.showMessage(
         this.track ? 'Lyrics are ready when you are.' : 'Choose a song first.',
         this.track
