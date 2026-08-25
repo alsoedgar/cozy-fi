@@ -58,6 +58,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const ARTWORK_RETRY_DELAY_MS = 120_000;
   let resizePointerId = null;
   let resizing = false;
+  const CoverTheme = window.CozyCoverTheme;
+  let activeThemePreference = { kind: 'preset', id: 'morning-lo-fi', fontSize: 'standard' };
+  let coverThemeRequestGeneration = 0;
+  let coverThemeKey = '';
+  const coverThemeColorCache = new Map();
   const LyricsController = window.CozyLyrics?.LyricsController;
   const lyricsController = LyricsController
     ? new LyricsController(api.lyrics, {
@@ -123,19 +128,29 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function clearTheme() {
-    document.body.classList.remove('theme-soft-sunset', 'theme-custom', 'font-enlarged');
+    Array.from(document.body.classList)
+      .filter(className => (
+        className.startsWith('theme-') || className.startsWith('cover-style-') || className.startsWith('font-')
+      ))
+      .forEach(className => document.body.classList.remove(className));
     [
       '--bg-primary', '--bg-secondary', '--bg-card', '--text-primary', '--text-secondary',
       '--accent-color', '--accent-color-hover', '--border-color', '--progress-bg',
-      '--shadow-color', '--card-light', '--button-filled-text'
+      '--shadow-color', '--card-light', '--button-filled-text',
+      '--cover-start', '--cover-end', '--cover-glow'
     ].forEach(property => document.body.style.removeProperty(property));
   }
 
-  function applyTheme(theme = {}) {
+  function applyTheme(theme = {}, rememberPreference = true) {
+    if (rememberPreference) {
+      activeThemePreference = theme && typeof theme === 'object' ? { ...theme } : {};
+      coverThemeRequestGeneration += 1;
+      coverThemeKey = '';
+    }
     clearTheme();
     if (theme.kind === 'preset' && theme.id === 'soft-sunset') {
       document.body.classList.add('theme-soft-sunset');
-    } else if (theme.kind === 'custom' && theme.colors) {
+    } else if (['custom', 'cover'].includes(theme.kind) && theme.colors) {
       const colors = theme.colors;
       const accent = normalizeHex(colors.accentColor, '#c08a6e');
       const border = normalizeHex(colors.borderColor, '#3c2f2f');
@@ -156,10 +171,61 @@ document.addEventListener('DOMContentLoaded', () => {
         '--card-light': mixHex(card, secondary, 0.45),
         '--button-filled-text': contrastRatio(accent, '#241b1b') >= 4.5 ? '#241b1b' : '#fffaf4'
       };
-      document.body.classList.add('theme-custom');
+      if (theme.kind === 'cover') {
+        const style = ['soft-gradient', 'vivid-gradient', 'solid'].includes(theme.cover?.style)
+          ? theme.cover.style
+          : 'soft-gradient';
+        document.body.classList.add('theme-cover-match', `cover-style-${style}`);
+        variables['--cover-start'] = normalizeHex(theme.cover?.start, primary);
+        variables['--cover-end'] = normalizeHex(theme.cover?.end, secondary);
+        variables['--cover-glow'] = normalizeHex(theme.cover?.glow, accent);
+      } else {
+        document.body.classList.add('theme-custom');
+      }
       Object.entries(variables).forEach(([property, value]) => document.body.style.setProperty(property, value));
     }
     document.body.classList.toggle('font-enlarged', theme.fontSize === 'enlarged');
+    if (rememberPreference && theme.kind === 'cover') void refreshSideCoverTheme();
+  }
+
+  function buildResolvedCoverTheme(sourceColors) {
+    const options = CoverTheme.normalizeCoverOptions(activeThemePreference.options);
+    const palette = CoverTheme.buildCoverThemePalette(sourceColors, options);
+    return {
+      kind: 'cover',
+      colors: palette.colors,
+      cover: palette.cover,
+      options,
+      fontSize: activeThemePreference.fontSize
+    };
+  }
+
+  async function refreshSideCoverTheme() {
+    if (activeThemePreference.kind !== 'cover' || !CoverTheme) return;
+    const cover = safeImageUrl(state.track?.cover);
+    const identity = `${trackIdentity(state.track)}\u001f${cover || ''}`;
+    if (identity === coverThemeKey) return;
+    coverThemeKey = identity;
+    const requestGeneration = ++coverThemeRequestGeneration;
+    if (!cover) {
+      applyTheme(buildResolvedCoverTheme(CoverTheme.DEFAULT_SOURCE_COLORS), false);
+      return;
+    }
+    try {
+      let sourceColors = coverThemeColorCache.get(cover);
+      if (!sourceColors) {
+        const dataUrl = cover.startsWith('data:image/') ? cover : await api.theme.resolveArtwork(cover);
+        sourceColors = await CoverTheme.extractArtworkFromDataUrl(dataUrl);
+        coverThemeColorCache.set(cover, sourceColors);
+        while (coverThemeColorCache.size > 24) coverThemeColorCache.delete(coverThemeColorCache.keys().next().value);
+      }
+      if (requestGeneration !== coverThemeRequestGeneration || activeThemePreference.kind !== 'cover') return;
+      applyTheme(buildResolvedCoverTheme(sourceColors), false);
+    } catch (error) {
+      if (requestGeneration !== coverThemeRequestGeneration || activeThemePreference.kind !== 'cover') return;
+      console.warn('[Side Player] Could not match cover colors:', error?.message || error);
+      applyTheme(buildResolvedCoverTheme(CoverTheme.DEFAULT_SOURCE_COLORS), false);
+    }
   }
 
   function safeImageUrl(value) {
@@ -273,6 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cachedCover) {
       state.track = { ...state.track, cover: cachedCover };
       renderCover();
+      void refreshSideCoverTheme();
       return;
     }
 
@@ -294,6 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (trackIdentity(state.track) !== identity || safeImageUrl(state.track?.cover)) return;
       state.track = { ...state.track, cover: recoveredCover };
       renderCover();
+      void refreshSideCoverTheme();
     } catch (error) {
       console.warn('[Side Player] Could not recover missing artwork:', error?.message || error);
     } finally {
@@ -412,6 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
         : 'Connect Spotify in the full app to begin.';
     }
     renderCover();
+    void refreshSideCoverTheme();
     lyricsController?.setTrack(state.track ? {
       ...state.track,
       durationMs: state.durationMs

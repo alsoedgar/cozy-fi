@@ -13,6 +13,9 @@
   --shadow-color: #3c2f2f;
   --card-light: #e5dcc5;
   --button-filled-text: #241b1b;
+  --cover-start: #e8c7b5;
+  --cover-end: #ead8c8;
+  --cover-glow: #d7b29e;
   --border-width: 3px;
 }
 
@@ -28,6 +31,22 @@ body.theme-soft-sunset {
   --progress-bg: #eed3cd;
   --shadow-color: #3a2e32;
   --card-light: #ebd6d1;
+}
+
+body.theme-cover-match.cover-style-soft-gradient {
+  background:
+    radial-gradient(circle at 12px 12px, color-mix(in srgb, var(--accent-color) 28%, transparent) 1.5px, transparent 1.7px) 0 0 / 24px 24px,
+    linear-gradient(145deg, var(--cover-start), var(--cover-end));
+}
+
+body.theme-cover-match.cover-style-vivid-gradient {
+  background:
+    radial-gradient(circle at 12% 4%, var(--cover-glow) 0, transparent 48%),
+    linear-gradient(145deg, var(--cover-start), var(--cover-end));
+}
+
+body.theme-cover-match.cover-style-solid {
+  background: var(--cover-start);
 }
 
 * {
@@ -162,6 +181,22 @@ input:focus-visible {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--bg-card) 36%, transparent), transparent 46%),
     var(--bg-secondary);
+}
+
+body.theme-cover-match.cover-style-soft-gradient .mini-player-panel {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--cover-glow) 38%, transparent), transparent 48%),
+    color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+}
+
+body.theme-cover-match.cover-style-vivid-gradient .mini-player-panel {
+  background:
+    radial-gradient(circle at 90% 3%, color-mix(in srgb, var(--cover-end) 76%, transparent) 0, transparent 54%),
+    linear-gradient(145deg, color-mix(in srgb, var(--cover-start) 58%, var(--bg-secondary)), var(--bg-secondary));
+}
+
+body.theme-cover-match.cover-style-solid .mini-player-panel {
+  background: var(--bg-secondary);
 }
 
 .mini-status-row,

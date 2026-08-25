@@ -17,6 +17,9 @@
   --shadow-color: #3c2f2f;
   --card-light: #e5dcc5;
   --button-filled-text: #241b1b;
+  --cover-start: #e8c7b5;
+  --cover-end: #ead8c8;
+  --cover-glow: #d7b29e;
 
   /* Typography Scales (Standard by default) */
   --font-base: 15px;
@@ -46,6 +49,30 @@ body.theme-soft-sunset {
   --progress-bg: #eed3cd;
   --shadow-color: #3a2e32;
   --card-light: #ebd6d1;
+}
+
+body.theme-cover-match.cover-style-soft-gradient,
+body.theme-cover-match.cover-style-soft-gradient .main-view {
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--cover-glow) 58%, transparent) 0, transparent 52%),
+    linear-gradient(135deg, var(--cover-start), var(--cover-end));
+}
+
+body.theme-cover-match.cover-style-vivid-gradient,
+body.theme-cover-match.cover-style-vivid-gradient .main-view {
+  background:
+    radial-gradient(circle at 12% 8%, var(--cover-glow) 0, transparent 47%),
+    radial-gradient(circle at 92% 18%, var(--cover-end) 0, transparent 50%),
+    linear-gradient(145deg, var(--cover-start), var(--bg-primary) 72%);
+}
+
+body.theme-cover-match.cover-style-solid,
+body.theme-cover-match.cover-style-solid .main-view {
+  background: var(--cover-start);
+}
+
+body.theme-cover-match .header-bar {
+  background-color: color-mix(in srgb, var(--bg-primary) 90%, transparent);
 }
 
 /* Enlarged Typography overrides */
@@ -2083,7 +2110,7 @@ button:disabled {
 
 .theme-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .custom-theme-editor {
@@ -2092,6 +2119,87 @@ button:disabled {
   gap: 14px;
   padding-top: 16px;
   border-top: 2px dashed var(--border-color);
+}
+
+.cover-theme-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 2px dashed var(--border-color);
+}
+
+.cover-theme-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(180px, 1.25fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.cover-intensity-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  color: var(--text-secondary);
+  font-family: 'Space Mono', monospace;
+  font-size: var(--font-xs);
+  font-weight: 700;
+}
+
+.cover-intensity-field input[type='range'] {
+  grid-column: 1;
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--accent-color);
+}
+
+.cover-intensity-field output {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: end;
+  min-width: 42px;
+  padding: 5px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.cover-theme-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+}
+
+.cover-theme-status-dot {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--accent-color);
+  box-shadow: 12px 0 0 var(--cover-start), 24px 0 0 var(--cover-end);
+  margin-right: 24px;
+}
+
+.cover-theme-feedback {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: 'Space Mono', monospace;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.cover-theme-feedback.warning {
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .custom-theme-toolbar {
@@ -2445,6 +2553,10 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  .cover-theme-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .player-view-tabs-shell {
     align-items: stretch;
     flex-direction: column;

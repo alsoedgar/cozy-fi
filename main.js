@@ -224,7 +224,7 @@ function normalizeSidePlayerBounds(value) {
 
 function normalizeSidePlayerTheme(value) {
   const fontSize = value?.fontSize === 'enlarged' ? 'enlarged' : 'standard';
-  if (value?.kind === 'custom' && value.colors && typeof value.colors === 'object') {
+  if (['custom', 'cover'].includes(value?.kind) && value.colors && typeof value.colors === 'object') {
     const keys = [
       'bgPrimary', 'bgSecondary', 'bgCard', 'textPrimary',
       'textSecondary', 'accentColor', 'borderColor'
@@ -234,6 +234,23 @@ function normalizeSidePlayerTheme(value) {
       const color = typeof value.colors[key] === 'string' ? value.colors[key].trim().toLowerCase() : '';
       if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Invalid side-player theme color.');
       colors[key] = color;
+    }
+    if (value.kind === 'cover') {
+      const style = ['soft-gradient', 'vivid-gradient', 'solid'].includes(value.cover?.style)
+        ? value.cover.style
+        : 'soft-gradient';
+      const cover = { style };
+      for (const key of ['start', 'end', 'glow']) {
+        const color = typeof value.cover?.[key] === 'string' ? value.cover[key].trim().toLowerCase() : '';
+        if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Invalid cover-match backdrop color.');
+        cover[key] = color;
+      }
+      const options = {
+        style,
+        mood: ['auto', 'light', 'dark'].includes(value.options?.mood) ? value.options.mood : 'auto',
+        intensity: Math.max(20, Math.min(100, Math.round(Number(value.options?.intensity) || 68)))
+      };
+      return { kind: 'cover', colors, cover, options, fontSize };
     }
     return { kind: 'custom', colors, fontSize };
   }
@@ -1876,6 +1893,17 @@ async function runSmokeTest() {
           document.getElementById('player-now-playing-panel').hidden &&
           lyricsTab.getAttribute('aria-selected') === 'true';
         artworkTab.click();
+        activate('settings');
+        document.querySelector('[data-theme="cover-match"]').click();
+        const coverThemePreview = Boolean(
+          document.body.classList.contains('theme-cover-match') &&
+          !document.getElementById('cover-theme-editor').hidden &&
+          ['cover-theme-style', 'cover-theme-mood', 'cover-theme-intensity'].every(id => Boolean(document.getElementById(id))) &&
+          /^#[0-9a-f]{6}$/i.test(getComputedStyle(document.body).getPropertyValue('--cover-start').trim()) &&
+          viewFits('settings')
+        );
+        document.querySelector('[data-theme="morning-lo-fi"]').click();
+        activate('home');
         const checks = {
           title: document.title === 'Cozy-Fi',
           api: Boolean(window.cozyApi),
@@ -1884,6 +1912,7 @@ async function runSmokeTest() {
           library: activate('library'),
           settings: activate('settings'),
           customTheme: Boolean(document.getElementById('custom-theme-editor') && document.querySelectorAll('[data-color-key]').length >= 7),
+          coverTheme: coverThemePreview,
           sidePlayerToggle: Boolean(document.getElementById('side-player-toggle')),
           pagination: ['liked-tracks-pagination', 'library-grid-pagination', 'search-pagination'].every(id => Boolean(document.getElementById(id))),
           capability: Boolean(capability && typeof capability.mode === 'string' && typeof capability.preference === 'string'),
@@ -2024,6 +2053,31 @@ async function runSmokeTest() {
           ));
         const unpinned = await window.cozyApi.sidePlayer.setPinned(false);
         const repinned = await window.cozyApi.sidePlayer.setPinned(true);
+        await window.cozyApi.sidePlayer.syncTheme({
+          kind: 'cover',
+          fontSize: 'standard',
+          colors: {
+            bgPrimary: '#18213a', bgSecondary: '#222d4b', bgCard: '#2d3c61',
+            textPrimary: '#fffaf4', textSecondary: '#d9e2f5', accentColor: '#e4a95f',
+            borderColor: '#fffaf4'
+          },
+          cover: { style: 'vivid-gradient', start: '#102d6b', end: '#562b68', glow: '#6b4610' },
+          options: { style: 'vivid-gradient', mood: 'dark', intensity: 82 }
+        });
+        await new Promise(done => setTimeout(done, 40));
+        const coverThemeApplied = document.body.classList.contains('theme-cover-match') &&
+          document.body.classList.contains('cover-style-vivid-gradient') &&
+          /^#[0-9a-f]{6}$/i.test(getComputedStyle(document.body).getPropertyValue('--cover-start').trim());
+        await window.cozyApi.sidePlayer.syncTheme({
+          kind: 'custom',
+          fontSize: 'enlarged',
+          colors: {
+            bgPrimary: '#f2e9dc', bgSecondary: '#fffaf2', bgCard: '#dfc8b4',
+            textPrimary: '#302625', textSecondary: '#6b554e', accentColor: '#b98268',
+            borderColor: '#302625'
+          }
+        });
+        await new Promise(done => setTimeout(done, 40));
         const artworkProbeUrl = ${JSON.stringify(SMOKE_ARTWORK_URL)};
         const proxiedArtwork = artworkProbeUrl
           ? await window.cozyApi.sidePlayer.resolveArtwork(artworkProbeUrl)
@@ -2090,6 +2144,7 @@ async function runSmokeTest() {
             proxiedArtwork.includes(';base64,')
           ),
           pinRoundTrip: unpinned?.pinned === false && repinned?.pinned === true,
+          coverTheme: coverThemeApplied,
           lyricsLazyBeforeOpen,
           compactLyrics,
           compactLyricsFits,
@@ -2269,6 +2324,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('get-auth-status', async () => Boolean(await ensureAccessToken()));
   ipcMain.handle('get-public-config', () => ({ clientId, playbackPreference }));
+  ipcMain.handle('theme-resolve-artwork', (_event, rawUrl) => resolveSidePlayerArtwork(rawUrl));
   ipcMain.handle('get-playback-capability', () => getPlaybackCapability());
   ipcMain.handle('set-playback-preference', async (_event, rawPreference) => {
     playbackPreference = normalizePlaybackPreference(rawPreference);

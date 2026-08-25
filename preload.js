@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('cozyApi', {
     importLocal: track => ipcRenderer.invoke('import-local-lyrics', track),
     onLocalUpdate: callback => subscribe('lyrics-local-updated', callback)
   },
+  theme: {
+    resolveArtwork: url => ipcRenderer.invoke('theme-resolve-artwork', url)
+  },
   spotify: {
     getProfile: () => ipcRenderer.invoke('get-profile'),
     getPlaylists: () => ipcRenderer.invoke('get-playlists'),

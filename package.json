@@ -1,7 +1,7 @@
 {
   "name": "cozy-fi",
   "productName": "Cozy-Fi",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A cross-platform retro-cozy companion player for Spotify Premium.",
   "author": "Cozy-Fi contributors",
   "private": true,
@@ -9,11 +9,12 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check main.js && node --check preload.js && node --check js/audio.js && node --check js/playback-context.js && node --check js/lyrics.js && node --check js/spotify.js && node --check js/router.js && node --check js/theme.js && node --check js/render.js && node --check js/search.js && node --check js/ui.js && node --check js/mini-player.js && node --check js/app.js && node --check scripts/platform.js && node --check scripts/platform.test.js && node --check scripts/playback-context.test.js && node --check scripts/lyrics.test.js && node --check scripts/build-librespot.js && node --check scripts/generate-icons.js && node --check scripts/package.js && node --check scripts/verify-dist.js",
+    "check": "node --check main.js && node --check preload.js && node --check js/audio.js && node --check js/playback-context.js && node --check js/cover-theme.js && node --check js/lyrics.js && node --check js/spotify.js && node --check js/router.js && node --check js/theme.js && node --check js/render.js && node --check js/search.js && node --check js/ui.js && node --check js/mini-player.js && node --check js/app.js && node --check scripts/platform.js && node --check scripts/platform.test.js && node --check scripts/playback-context.test.js && node --check scripts/cover-theme.test.js && node --check scripts/lyrics.test.js && node --check scripts/build-librespot.js && node --check scripts/generate-icons.js && node --check scripts/package.js && node --check scripts/verify-dist.js",
     "test:platform": "node scripts/platform.test.js",
     "test:playback": "node scripts/playback-context.test.js",
+    "test:cover-theme": "node scripts/cover-theme.test.js",
     "test:lyrics": "node scripts/lyrics.test.js",
-    "test": "npm run check && npm run test:platform && npm run test:playback && npm run test:lyrics && electron . --smoke-test",
+    "test": "npm run check && npm run test:platform && npm run test:playback && npm run test:cover-theme && npm run test:lyrics && electron . --smoke-test",
     "icon": "node scripts/generate-icons.js",
     "build:librespot": "node scripts/build-librespot.js",
     "dist": "node scripts/package.js",

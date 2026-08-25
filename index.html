@@ -225,6 +225,14 @@
                   <div class="swatch" style="background-color: #dca396;"></div>
                 </div>
               </div>
+              <div class="theme-option-box" data-theme="cover-match">
+                <div class="theme-name">Cover Match</div>
+                <div class="theme-swatches" aria-hidden="true">
+                  <div class="swatch" id="cover-swatch-primary" style="background-color: #c08a6e;"></div>
+                  <div class="swatch" id="cover-swatch-card" style="background-color: #ebd9c5;"></div>
+                  <div class="swatch" id="cover-swatch-accent" style="background-color: #705e54;"></div>
+                </div>
+              </div>
               <div class="theme-option-box" data-theme="custom">
                 <div class="theme-name">Custom</div>
                 <div class="theme-swatches" aria-hidden="true">
@@ -232,6 +240,35 @@
                   <div class="swatch" id="custom-swatch-card" style="background-color: #ebd9c5;"></div>
                   <div class="swatch" id="custom-swatch-accent" style="background-color: #c08a6e;"></div>
                 </div>
+              </div>
+            </div>
+            <div class="cover-theme-editor" id="cover-theme-editor" hidden>
+              <div class="cover-theme-controls">
+                <label class="theme-field" for="cover-theme-style">
+                  <span>Backdrop</span>
+                  <select id="cover-theme-style">
+                    <option value="soft-gradient">Soft gradient</option>
+                    <option value="vivid-gradient">Vivid gradient</option>
+                    <option value="solid">Solid color</option>
+                  </select>
+                </label>
+                <label class="theme-field" for="cover-theme-mood">
+                  <span>Brightness</span>
+                  <select id="cover-theme-mood">
+                    <option value="auto">Match cover</option>
+                    <option value="light">Always light</option>
+                    <option value="dark">Always dark</option>
+                  </select>
+                </label>
+                <label class="cover-intensity-field" for="cover-theme-intensity">
+                  <span>Color strength</span>
+                  <input type="range" id="cover-theme-intensity" min="20" max="100" step="1" value="68">
+                  <output id="cover-theme-intensity-output" for="cover-theme-intensity">68%</output>
+                </label>
+              </div>
+              <div class="cover-theme-status">
+                <span class="cover-theme-status-dot" aria-hidden="true"></span>
+                <span class="cover-theme-feedback" id="cover-theme-feedback" role="status" aria-live="polite">Waiting for a song cover.</span>
               </div>
             </div>
             <div class="custom-theme-editor" id="custom-theme-editor" hidden>
@@ -385,6 +422,7 @@
   <script src="js/playback-context.js"></script>
   <script src="js/spotify.js"></script>
   <script src="js/router.js"></script>
+  <script src="js/cover-theme.js"></script>
   <script src="js/theme.js"></script>
   <script src="js/render.js"></script>
   <script src="js/search.js"></script>

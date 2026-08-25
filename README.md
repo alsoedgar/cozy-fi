@@ -1,6 +1,6 @@
 # Cozy-Fi
 
-Cozy-Fi is a cross-platform, retro-cozy desktop companion player for Spotify Premium. The same Electron interface and feature set run on Windows, macOS, and Linux, including Spotify search, saved music, playlists, artists, queue controls, liking, playlist creation, optional LRCLIB lyrics, a native local Spotify Connect output, compact layouts, the dockable side player, loading skeletons, pagination, and custom palettes.
+Cozy-Fi is a cross-platform, retro-cozy desktop companion player for Spotify Premium. The same Electron interface and feature set run on Windows, macOS, and Linux, including Spotify search, saved music, playlists, artists, queue controls, liking, playlist creation, optional LRCLIB lyrics, a native local Spotify Connect output, compact layouts, the dockable side player, loading skeletons, pagination, custom palettes, and optional cover-matched color themes.
 
 This project is intended for personal use and source-code learning. It is not affiliated with, endorsed by, or a replacement for Spotify. Spotify's Developer Policy requires integrations to add independent value and prohibits unapproved apps from replicating or replacing Spotify's core experience.
 
@@ -25,7 +25,7 @@ Cozy-Fi gives a Premium listener a focused, customizable desktop interface for t
 - Control play/pause, seeking, volume, queue, likes, and playlist creation.
 - Open optional lyrics in either player with synchronized line highlighting, broader LRCLIB matching for alternate releases, and private local `.lrc`/`.txt` fallbacks.
 - Switch between the full responsive app and a resizable, pinnable side player.
-- Use Morning Lo-Fi or Soft Sunset, enlarge the typography, or create and save custom seven-color palettes.
+- Use Morning Lo-Fi or Soft Sunset, match the interface to the current cover, enlarge the typography, or create and save custom seven-color palettes.
 - Keep long libraries and result sets manageable with loading skeletons and pagination.
 - Run the same source on Windows, macOS, and Linux with native build workflows for each platform.
 
@@ -97,7 +97,7 @@ Lyrics are optional and are fetched only after the Lyrics tab is opened for a se
 
 Open **MENU → Side Player** to switch into the compact player; the full window hides so only the side player remains. Its live Spotify artwork, timeline, play/pause, previous, and next controls use the same playback session as the full app. Select **COVER** or **LYRICS** in the compact header without hiding the track and playback controls. The side-player lyrics view reuses the same lazy expanded LRCLIB lookup and local-file library: timed lines follow standalone playback, while plain lyrics and Spotify App mode remain manually scrollable. Use **LOCAL** to add, replace, or remove a local lyric file without returning to the full app. Drag the lower-right grip to resize it, or focus the grip and use the arrow keys. **PIN** toggles always-on-top, **FULL** (or a title-bar double-click) hides the compact window and restores the full app, and **HIDE** minimizes the side player so it can be restored from the taskbar or dock. Its size and screen position are remembered.
 
-Morning Lo-Fi, Soft Sunset, enlarged type, and custom palette previews are mirrored into the side player immediately. Standalone mode provides all compact controls; Spotify App mode shows the selected track with an **OPEN** action because transport controls remain in Spotify.
+Morning Lo-Fi, Soft Sunset, Cover Match, enlarged type, and custom palette previews are mirrored into the side player immediately. Standalone mode provides all compact controls; Spotify App mode shows the selected track with an **OPEN** action because transport controls remain in Spotify.
 
 Spotify removed the `product` subscription field from `GET /me` for Development Mode apps in February 2026, so Cozy-Fi cannot always read a trustworthy Free/Premium label directly. It uses capability detection instead and never treats an ordinary network error as proof that an account is Free. Spotify's current [Web API requirements](https://developer.spotify.com/documentation/web-api) also require Premium, so external mode is a graceful link fallback—not a way to give Free accounts the full Cozy-Fi library/search experience.
 
@@ -105,9 +105,11 @@ The Web API refresh token stays in Electron's user-data directory only when oper
 
 ## Customization
 
-Open **MENU → Settings** to choose a preset theme or select **Custom**. A custom palette controls the background, surface, card, primary text, muted text, accent, and outline colors. Name the palette and select **SAVE PALETTE** to keep it locally. Saved palettes and font-size preferences stay on that computer and update the full app and side player together.
+Open **MENU → Settings** to choose a preset theme, **Cover Match**, or **Custom**. Cover Match samples the current Spotify artwork locally and builds an accessible palette for the full app and side player. Choose a soft gradient, vivid gradient, or solid backdrop; let brightness follow the cover or force a light/dark result; and adjust color strength from subtle to saturated. Select **SAVE PALETTE** to remember those choices. When no artwork is available, Cozy-Fi uses a calm fallback palette instead of flashing or leaving an unfinished background.
 
-Custom themes include automatic derived hover, shadow, progress, and contrast colors. Very low-contrast text/accent combinations are rejected so controls remain readable.
+A custom palette controls the background, surface, card, primary text, muted text, accent, and outline colors. Name the palette and select **SAVE PALETTE** to keep it locally. Saved theme settings and font-size preferences stay on that computer and update the full app and side player together.
+
+Cover Match and Custom themes include automatic derived hover, shadow, progress, and contrast colors. Cover Match constrains generated text colors to accessible contrast targets, while very low-contrast custom text/accent combinations are rejected so controls remain readable. Artwork sampling is performed inside Cozy-Fi and does not call an additional palette or AI service.
 
 ## Development
 
@@ -121,7 +123,7 @@ npm start
 
 `npm run build:librespot` builds the pinned, patched playback engine for the current operating system and CPU architecture, records its SHA-256 in `librespot-checksums.json`, and marks it executable on macOS/Linux. Native playback binaries cannot be safely cross-compiled by the packaging command: each package must be created on a matching host.
 
-`npm test` runs JavaScript syntax checks, playback-context tests, expanded lyric-ranking/import/LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the LRCLIB and local-lyrics IPC/tab/scrolling paths in both players, side-player artwork, resizing, single-window transitions, loading states, themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
+`npm test` runs JavaScript syntax checks, playback-context tests, cover-color extraction/contrast tests, expanded lyric-ranking/import/LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the LRCLIB and local-lyrics IPC/tab/scrolling paths in both players, side-player artwork, resizing, single-window transitions, loading states, preset/custom/cover-matched themes, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
 
 To create and verify an unpacked build for the current host and architecture:
 
@@ -163,6 +165,7 @@ The generated folders are unsigned, unpacked personal builds rather than install
 - Electron runs with renderer sandboxing, context isolation, no Node integration, and a narrow preload API.
 - Spotify OAuth uses PKCE plus a random state value and an exact loopback callback.
 - User-controlled Spotify metadata is escaped or written with `textContent` before display.
+- Cover Match downloads only the already-displayed artwork from Spotify's trusted image hosts, downsamples and analyzes it locally, and keeps extracted colors in memory. It does not send artwork or color data to a separate service.
 - LRCLIB requests are made sequentially only from the sandboxed app's main process after the Lyrics tab is opened. They contain track matching metadata, never Spotify credentials, and their results are cached only in memory.
 - Optional local `.lrc`/`.txt` imports are size-limited, parsed as text, and copied under Electron's per-user application-data directory. Cozy-Fi does not upload them, retain the source path, or alter the original file.
 - Disconnecting deletes the locally retained Spotify refresh token and local-player credential, then stops the playback process.

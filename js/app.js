@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const themeBoxes = document.querySelectorAll('.theme-option-box');
   const saveThemeBtn = document.getElementById('save-theme-btn');
   const typoRows = document.querySelectorAll('.typo-option-row');
-  new ThemeManagerClass(themeBoxes, saveThemeBtn, typoRows);
+  const themeManager = new ThemeManagerClass(themeBoxes, saveThemeBtn, typoRows);
 
   const lyricsController = new LyricsControllerClass(window.cozyApi?.lyrics, {
     artworkTab: document.getElementById('player-now-playing-tab'),
@@ -820,6 +820,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function updatePlayerBarUI(track, isPlaying) {
     if (!track) return;
     currentDisplayedTrack = track;
+    themeManager.setArtwork(
+      track.cover,
+      track.spotifyUri || track.id || [track.title, track.artist, track.album].filter(Boolean).join('\u001f')
+    );
     document.getElementById('player-bar-title').textContent = track.title;
     document.getElementById('player-bar-artist').textContent = track.artist;
     renderCover('player-bar-art-container', track.cover, track.title, 'player-album-art');
@@ -842,6 +846,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function resetPlayerDisplay() {
     currentDisplayedTrack = null;
+    themeManager.setArtwork(null);
     document.getElementById('player-bar-title').textContent = 'Track Title';
     document.getElementById('player-bar-artist').textContent = 'Artist';
     document.getElementById('player-view-title').textContent = 'Track Title';
