@@ -670,156 +670,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (spotifyUrl) spotify.openExternal(spotifyUrl).catch(error => console.error(error));
   });
 
-  // Upcoming Queue panel updater
-  const queueBtn = document.getElementById('player-queue-btn');
+  // Both players use the same queue controller and main-process session.
   const queueOverlay = document.getElementById('queue-overlay');
-  const queueListContainer = document.getElementById('queue-list-container');
-  const queueCloseBtn = document.getElementById('queue-close-btn');
-  let queueRenderGeneration = 0;
-
+  const queuePanel = new window.CozyQueuePanel({
+    api: spotify,
+    panel: queueOverlay,
+    toggle: document.getElementById('player-queue-btn'),
+    shuffle: document.getElementById('player-shuffle-btn'),
+    similar: document.getElementById('player-similar-btn'),
+    getTrack: () => currentDisplayedTrack,
+    canControl: () => spotify.isAuthenticated && spotify.isStandalonePlayback,
+    onPlayback: handlePlaybackCommand,
+    onError: message => window.showCozyStatus?.(message)
+  });
+  window.cozyQueuePanel = queuePanel;
+  function updateQueueOverlay() { return queuePanel.refresh(); }
   function refreshOpenQueue() {
-    if (queueOverlay.style.display === 'block') updateQueueOverlay();
+    if (queuePanel.expanded) void queuePanel.refresh();
+    queuePanel.updateControls();
   }
-
+  spotify.onQueueChanged(() => schedulePlaybackPoll(650));
   window.addEventListener('cozy-queue-changed', refreshOpenQueue);
-
-  function setQueueExpanded(expanded, returnFocus = false) {
-    queueOverlay.style.display = expanded ? 'block' : 'none';
-    queueBtn.setAttribute('aria-expanded', String(expanded));
-    if (expanded) {
-      updateQueueOverlay();
-      queueOverlay.focus();
-    } else if (returnFocus) {
-      queueBtn.focus();
-    }
-  }
-
-  queueBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const showing = queueOverlay.style.display === 'block';
-    setQueueExpanded(!showing, showing);
+  window.addEventListener('cozy-network-changed', () => {
+    schedulePlaybackPoll(0);
+    queuePanel.updateControls();
   });
-  queueCloseBtn.addEventListener('click', () => setQueueExpanded(false, true));
-
-  // Close queue when clicking outside
-  document.addEventListener('click', (e) => {
-    if (queueOverlay.style.display === 'block' && !queueOverlay.contains(e.target) && e.target !== queueBtn) {
-      setQueueExpanded(false);
-    }
-  });
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && queueOverlay.style.display === 'block') {
-      event.preventDefault();
-      setQueueExpanded(false, true);
-    }
-  });
-
-  async function updateQueueOverlay() {
-    const renderGeneration = ++queueRenderGeneration;
-    queueListContainer.innerHTML = '';
-    queueListContainer.setAttribute('aria-busy', 'true');
-    for (let index = 0; index < 5; index += 1) {
-      const skeleton = document.createElement('div');
-      skeleton.className = 'skeleton skeleton-track-row';
-      skeleton.setAttribute('aria-hidden', 'true');
-      queueListContainer.appendChild(skeleton);
-    }
-    if (!spotify.isAuthenticated) {
-      queueListContainer.textContent = 'Connect Spotify to view your queue.';
-      queueListContainer.removeAttribute('aria-busy');
-      return;
-    }
-    if (spotify.isExternalPlayback) {
-      queueListContainer.textContent = 'Queue controls stay in the Spotify app or browser in this playback mode.';
-      queueListContainer.removeAttribute('aria-busy');
-      return;
-    }
-
-    try {
-      const queueState = await spotify.getQueue();
-      if (renderGeneration !== queueRenderGeneration || !spotify.isAuthenticated) return;
-      const upcoming = Array.isArray(queueState?.queue) ? queueState.queue.slice(0, 20) : [];
-      queueListContainer.innerHTML = '';
-      queueListContainer.removeAttribute('aria-busy');
-      if (upcoming.length === 0) {
-        queueListContainer.textContent = 'Queue is empty';
-        return;
-      }
-
-      upcoming.forEach(track => {
-        const row = document.createElement('div');
-        row.className = 'queue-track-row';
-        const isEpisode = track.type === 'episode';
-        if (!isEpisode) {
-          row.tabIndex = 0;
-          row.setAttribute('role', 'button');
-        }
-
-        const coverUrl = track.album?.images?.[0]?.url || track.images?.[0]?.url || track.show?.images?.[0]?.url;
-        let safeCoverUrl = null;
-        try {
-          const parsedCover = new URL(coverUrl);
-          if (parsedCover.protocol === 'https:') safeCoverUrl = parsedCover.toString();
-        } catch {}
-        if (safeCoverUrl) {
-          const image = document.createElement('img');
-          image.src = safeCoverUrl;
-          image.alt = '';
-          image.className = 'queue-track-art';
-          row.appendChild(image);
-        }
-
-        const details = document.createElement('div');
-        details.className = 'queue-track-details';
-        const title = document.createElement('div');
-        title.className = 'queue-track-title';
-        title.textContent = track.name || 'Unknown Track';
-        const artist = document.createElement('div');
-        artist.className = 'queue-track-artist';
-        artist.textContent = Array.isArray(track.artists)
-          ? track.artists.map(item => item.name).join(', ')
-          : track.show?.publisher || track.show?.name || 'Podcast episode';
-        details.append(title, artist);
-        row.appendChild(details);
-
-        if (isEpisode) {
-          const openButton = document.createElement('button');
-          openButton.className = 'open-spotify-row-btn';
-          openButton.textContent = 'OPEN IN SPOTIFY';
-          openButton.addEventListener('click', () => {
-            const spotifyUrl = track.external_urls?.spotify;
-            if (spotifyUrl) spotify.openExternal(spotifyUrl).catch(error => console.error(error));
-          });
-          row.appendChild(openButton);
-        } else {
-            const playQueuedTrack = async () => {
-              try {
-              const result = await spotify.playTrack(track.uri);
-              if (result?.external) return;
-              handlePlaybackCommand(true);
-            } catch (error) { console.error(error); }
-          };
-          row.addEventListener('click', playQueuedTrack);
-          row.addEventListener('keydown', event => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              playQueuedTrack();
-            }
-          });
-        }
-        queueListContainer.appendChild(row);
-      });
-    } catch (error) {
-      if (renderGeneration !== queueRenderGeneration) return;
-      console.error('Could not load Spotify queue:', error);
-      queueListContainer.textContent = 'Could not load the queue. Start playback and try again.';
-      queueListContainer.removeAttribute('aria-busy');
-    }
-  }
-
+  void queuePanel.refresh();
   function updatePlayerBarUI(track, isPlaying) {
     if (!track) return;
     currentDisplayedTrack = track;
+    window.cozyQueuePanel?.updateControls();
     themeManager.setArtwork(
       track.cover,
       track.spotifyUri || track.id || [track.title, track.artist, track.album].filter(Boolean).join('\u001f')
@@ -931,11 +811,7 @@ document.addEventListener('DOMContentLoaded', () => {
               return;
             }
           } else {
-            const uris = activeQueue.map(track => track.spotifyUri).filter(Boolean);
-            if (uris.length > 100) {
-              alert('Spotify limits Liked Songs playback requests to 100 tracks. Cozy-Fi will start the first 100 shown.');
-            }
-            const result = await spotify.playTracks(uris.slice(0, 100));
+            const result = await spotify.playTracks(activeQueue);
             if (result?.external) {
               updatePlayerBarUI(activeQueue[0], false);
               updatePlayerView(activeQueue[0]);
@@ -981,11 +857,7 @@ document.addEventListener('DOMContentLoaded', () => {
               spotifyUrl: firstTrack.external_urls?.spotify || null,
               spotifyType: firstTrack.type || 'track'
             };
-            const likedUris = liked.map(track => track.uri).filter(Boolean);
-            if (likedUris.length > 100) {
-              alert('Spotify limits Liked Songs playback requests to 100 tracks. Cozy-Fi will start the first 100 shown.');
-            }
-            const result = await spotify.playTracks(likedUris.slice(0, 100));
+            const result = await spotify.playTracks(liked);
             updatePlayerBarUI(displayTrack, !result?.external);
             updatePlayerView(displayTrack);
             updateDailyBrewCard(displayTrack);
@@ -1062,10 +934,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const external = mode === 'external';
-    const localReady = mode === 'standalone';
     const queueButton = document.getElementById('player-queue-btn');
     if (queueButton) {
-      queueButton.disabled = !localReady;
+      queueButton.disabled = false;
       queueButton.title = external ? 'Queue controls are available in Spotify' : 'Queue';
     }
     document.getElementById('daily-brew-play-btn').textContent = external ? 'SPOTIFY' : 'LISTEN';
@@ -1136,7 +1007,7 @@ document.addEventListener('DOMContentLoaded', () => {
       playbackAuthorizationPending = false;
       isSpotifyPlaying = false;
       lastSpotifyTrackId = null;
-      queueRenderGeneration += 1;
+      queuePanel.generation += 1;
       resetPlayerDisplay();
       updateTimelineUI(0, 0);
       ui.updatePlayPauseButtonUI(false);

@@ -1,5 +1,5 @@
 // Cozy-Fi Desktop App Entry Point (Electron main process)
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, screen, net } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -9,6 +9,8 @@ const { pathToFileURL } = require('url');
 const { spawn } = require('child_process');
 const librespotManifest = require('./librespot-checksums.json');
 const { normalizeContextOffset } = require('./js/playback-context');
+const { PlaybackQueue, normalizeTrack } = require('./js/playback-queue');
+const { normalizeGlassOptions } = require('./js/cover-theme');
 const {
   normalizeLyricsLookup,
   sanitizeLyricsRecord,
@@ -85,6 +87,57 @@ const lyricsCache = new Map();
 let lyricsRequestChain = Promise.resolve();
 let lyricsLastRequestAt = 0;
 let lyricsBlockedUntil = 0;
+let spotifyReachable = null;
+let playbackIpcChain = Promise.resolve();
+let playerStateRead = null;
+let playerStateCache = null;
+let playerStateReadAt = 0;
+let queueMaintenanceInterval = null;
+const playbackQueue = new PlaybackQueue({
+  request: (...args) => fetchWebApi(...args),
+  device: () => requirePlaybackDevice(),
+  publish: snapshot => {
+    playerStateReadAt = 0;
+    sendToRenderer('spotify-queue-changed', snapshot);
+  }
+});
+
+async function readCurrentPlayback() {
+  if (!deviceId || usesExternalPlayback()) return null;
+  if (Date.now() - playerStateReadAt < 2500) return playerStateCache;
+  if (playerStateRead) return playerStateRead;
+  const generation = authSessionGeneration;
+  const request = playbackQueue.observe().then(state => {
+    if (generation !== authSessionGeneration) return null;
+    playerStateCache = state;
+    playerStateReadAt = Date.now();
+    return state;
+  });
+  playerStateRead = request;
+  try { return await request; }
+  finally { if (playerStateRead === request) playerStateRead = null; }
+}
+
+function networkStatus() {
+  return { online: net.isOnline(), reachable: spotifyReachable };
+}
+
+function publishNetwork(reachable) {
+  spotifyReachable = reachable;
+  sendToRenderer('network-status', networkStatus());
+}
+
+// Serialize commands from both renderer processes, including context lookups.
+function playbackCommand(operation) {
+  const generation = authSessionGeneration;
+  const run = () => {
+    if (generation !== authSessionGeneration) throw new Error('The Spotify session changed.');
+    return Promise.resolve(operation()).finally(() => { playerStateReadAt = 0; });
+  };
+  const result = playbackIpcChain.then(run, run);
+  playbackIpcChain = result.catch(() => {});
+  return result;
+}
 
 const configPath = path.join(app.getPath('userData'), 'cozy-fi-config.json');
 const playbackCachePath = path.join(app.getPath('userData'), 'librespot');
@@ -298,15 +351,14 @@ function normalizeSidePlayerTheme(value) {
         ? value.options.style
         : ['frosted', 'liquid'].includes(value.glass?.style) ? value.glass.style : 'liquid';
       const tone = ['cover', 'light', 'dark'].includes(value.options?.tone) ? value.options.tone : 'cover';
-      const opacity = Math.max(65, Math.min(96, Math.round(Number(value.options?.opacity) || 78)));
-      const blur = Math.max(8, Math.min(48, Math.round(Number(value.options?.blur) || 26)));
+      const options = normalizeGlassOptions({ ...value.options, style, tone });
       const glass = { style };
       for (const key of ['start', 'end', 'glow', 'sheen']) {
         const color = typeof value.glass?.[key] === 'string' ? value.glass[key].trim().toLowerCase() : '';
         if (!/^#[0-9a-f]{6}$/.test(color)) throw new Error('Invalid Cozy Glass color.');
         glass[key] = color;
       }
-      return { kind: 'glass', colors, glass, options: { style, tone, opacity, blur }, fontSize };
+      return { kind: 'glass', colors, glass, options, fontSize };
     }
     return { kind: 'custom', colors, fontSize };
   }
@@ -522,6 +574,21 @@ function requirePlaybackDevice() {
     throw new Error('Cozy-Fi Player is still starting. Wait a few seconds and try again.');
   }
   return deviceId;
+}
+
+function isPlaybackRestrictionError(error) {
+  return Number(error?.status) === 403 && /restriction violated|player command failed|premium|restricted/i.test(String(error?.message || ''));
+}
+
+function fallbackToSpotifyApp(rawUri, allowedTypes, error) {
+  const message = 'Spotify restricted Cozy-Fi playback for this account or device. Opening Spotify instead.';
+  console.warn('[Playback] Switching to Spotify App mode after a restricted-player response:', error?.message || error);
+  playbackQueue.reset();
+  deviceId = null;
+  stopDeviceSync();
+  killLibrespot();
+  setPlaybackCapability('external', message);
+  return openSpotifyUriExternally(rawUri, allowedTypes);
 }
 
 function hasPlaybackCredentials() {
@@ -860,6 +927,10 @@ async function parseSpotifyResponse(response, method) {
 }
 
 async function fetchWebApi(endpoint, method = 'GET', body = null) {
+  if (!net.isOnline()) {
+    publishNetwork(false);
+    throw new Error('You are offline. Reconnect to use Spotify.');
+  }
   const requestGeneration = authSessionGeneration;
   if (!(await ensureAccessToken()) || requestGeneration !== authSessionGeneration) {
     throw new Error('The Spotify session changed before the request started.');
@@ -873,7 +944,7 @@ async function fetchWebApi(endpoint, method = 'GET', body = null) {
     if (requestGeneration !== authSessionGeneration) throw new Error('The Spotify session changed during the request.');
     const tokenForAttempt = accessToken;
     const headers = { Authorization: `Bearer ${tokenForAttempt}` };
-    const options = { method, headers };
+    const options = { method, headers, signal: AbortSignal.timeout(12000) };
     if (body !== null && body !== undefined) {
       headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(body);
@@ -882,11 +953,13 @@ async function fetchWebApi(endpoint, method = 'GET', body = null) {
     try {
       response = await fetch(url, options);
     } catch (error) {
+      publishNetwork(false);
       if (requestGeneration !== authSessionGeneration) throw new Error('The Spotify session changed during the request.');
       const transportRetryIsSafe = ['GET', 'HEAD', 'PUT', 'DELETE'].includes(method);
       if (attempt < 2 && transportRetryIsSafe) continue;
       throw new Error(`Could not reach Spotify: ${error.message}`);
     }
+    if (spotifyReachable !== true) publishNetwork(true);
     if (requestGeneration !== authSessionGeneration) throw new Error('The Spotify session changed during the request.');
     if (response.status === 401 && attempt === 0 && refreshToken) {
       if (await refreshAccessToken(true)) {
@@ -1843,6 +1916,7 @@ function startDeviceSync(expectedProcess, expectedDeviceName, waitingForAuthoriz
 
 function logoutSession() {
   authSessionGeneration += 1;
+  playbackQueue.reset();
   refreshPromise = null;
   accessToken = '';
   refreshToken = '';
@@ -1882,6 +1956,97 @@ function installNavigationGuards(window, trustedUrl = TRUSTED_RENDERER_URL) {
     }
     return { action: 'deny' };
   });
+}
+
+async function runQueueUiSmoke(window) {
+  const checks = await window.webContents.executeJavaScript(`(async () => {
+    const panel = window.cozyQueuePanel;
+    if (!panel) return { initialized: false };
+    const original = { api: panel.api, canControl: panel.canControl, getTrack: panel.getTrack, onPlayback: panel.onPlayback, state: panel.state };
+    const track = (id, name) => ({ id, name, uri: 'spotify:track:' + id, queueId: id, artists: [{ name: 'Demo Artist' }] });
+    const state = { currentlyPlaying: track('a', 'Morning Coffee'), queue: [track('b', 'Quiet Streets'), track('c', 'Quiet Streets'), track('d', 'Blue Hour')], revision: 100000, managed: true, context: { name: 'Coffee Break' }, shuffle: false };
+    const clone = () => structuredClone(state);
+    const wait = async () => { for (let i = 0; i < 40 && panel.busy; i++) await new Promise(resolve => setTimeout(resolve, 10)); };
+    const checks = {};
+    try {
+      panel.canControl = () => true;
+      panel.getTrack = () => state.currentlyPlaying;
+      panel.onPlayback = () => {};
+      panel.api = {
+        getQueue: async () => clone(),
+        editQueue: async (action, value) => {
+          if (action === 'remove') state.queue = state.queue.filter(item => item.queueId !== value);
+          if (action === 'move') {
+            const from = state.queue.findIndex(item => item.queueId === value.id);
+            const [entry] = state.queue.splice(from, 1);
+            const to = value.beforeId ? state.queue.findIndex(item => item.queueId === value.beforeId) : state.queue.length;
+            state.queue.splice(to < 0 ? state.queue.length : to, 0, entry);
+          }
+          if (action === 'shuffle') { state.shuffle = value; state.queue.reverse(); }
+          if (action === 'play') { const index = state.queue.findIndex(item => item.queueId === value); state.currentlyPlaying = state.queue[index]; state.queue = state.queue.slice(index + 1); }
+          state.revision++;
+          return clone();
+        },
+        search: async () => ({ items: [track('e', 'Evening Rain')] }),
+        getSimilarTracks: async id => { checks.similarSeed = id === state.currentlyPlaying.id; return { seed: state.currentlyPlaying, tracks: [track('f', 'Café Window')], description: 'Songs by this artist and collaborators.' }; },
+        addToQueue: async uri => { state.queue.push(track(uri.split(':')[2], 'Added Song')); state.revision++; return clone(); }
+      };
+      panel.accept(clone());
+      panel.toggle.click();
+      await panel.refresh();
+      checks.popup = panel.expanded && panel.toggle.getAttribute('aria-expanded') === 'true';
+      const rect = panel.panel.getBoundingClientRect();
+      checks.popupFits = rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth + 1 && rect.bottom <= innerHeight + 1 && panel.panel.scrollWidth <= panel.panel.clientWidth + 1;
+      checks.rows = panel.list.querySelectorAll('.queue-item').length === 3;
+      panel.list.querySelector('[aria-label="Move down Quiet Streets"]').click();
+      await wait();
+      checks.reorder = state.queue[0].queueId === 'c' && state.queue[1].queueId === 'b';
+      panel.list.querySelector('[aria-label="Remove Quiet Streets"]').click();
+      await wait();
+      checks.removeDuplicate = state.queue.length === 2 && state.queue[0].queueId === 'b';
+      panel.shuffle.click();
+      await wait();
+      checks.shuffle = state.shuffle && panel.shuffle.getAttribute('aria-pressed') === 'true' && state.currentlyPlaying.id === 'a';
+      await panel.search('rain');
+      panel.results.querySelector('[aria-label="Add Evening Rain to queue"]').click();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      checks.add = state.queue.at(-1).id === 'e';
+      await panel.findSimilar();
+      checks.similarResults = panel.results.textContent.includes('Café Window');
+      panel.list.querySelector('[aria-label="Play Blue Hour"]').click();
+      await wait();
+      checks.playKeepsQueue = state.currentlyPlaying.id === 'd' && state.queue.length === 2;
+      const online = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+      window.dispatchEvent(new Event('offline'));
+      checks.offline = document.querySelector('[data-network-status]').textContent === 'OFFLINE' && panel.shuffle.disabled && !panel.toggle.disabled;
+      if (online) Object.defineProperty(navigator, 'onLine', online); else delete navigator.onLine;
+      window.CozyNetwork.render();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      checks.dismiss = !panel.expanded && document.activeElement === panel.toggle;
+    } finally {
+      const restore = () => { panel.setExpanded(false); Object.assign(panel, original); panel.render(); };
+      if (${Boolean(process.env.COZY_SMOKE_SCREENSHOTS)}) window.restoreQueueSmoke = restore;
+      else restore();
+    }
+    return checks;
+  })()`, true);
+  if (process.env.COZY_SMOKE_SCREENSHOTS) {
+    const directory = path.join(__dirname, '.cache', 'ui-checks');
+    fs.mkdirSync(directory, { recursive: true });
+    const visible = window.isVisible();
+    window.showInactive();
+    await window.webContents.executeJavaScript(`
+      document.querySelector('[data-theme="glass"]')?.click();
+      window.cozyQueuePanel.setExpanded(true);
+    `);
+    await new Promise(resolve => setTimeout(resolve, 350));
+    const capture = await window.webContents.capturePage();
+    fs.writeFileSync(path.join(directory, window === mainWindow ? 'full-queue.png' : 'mini-queue.png'), capture.toPNG());
+    await window.webContents.executeJavaScript('window.restoreQueueSmoke(); delete window.restoreQueueSmoke;');
+    if (!visible) window.hide();
+  }
+  return checks;
 }
 
 async function runSmokeTest() {
@@ -1970,6 +2135,23 @@ async function runSmokeTest() {
           /px$/.test(getComputedStyle(document.body).getPropertyValue('--glass-blur').trim()) &&
           viewFits('settings')
         );
+        const glassInputs = [
+          ['glass-theme-opacity', '--glass-surface-opacity'],
+          ['glass-theme-background-opacity', '--glass-main-opacity'],
+          ['glass-theme-card-opacity', '--glass-card-opacity']
+        ];
+        const glassFullRange = glassInputs.every(([id, variable]) => {
+          const input = document.getElementById(id);
+          const previous = input.value;
+          const supported = input.min === '0' && input.max === '100' && [0, 100].every(value => {
+            input.value = String(value);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return document.body.style.getPropertyValue(variable).trim() === value + '%';
+          });
+          input.value = previous;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return supported;
+        });
         document.querySelector('[data-theme="morning-lo-fi"]').click();
         activate('home');
         const checks = {
@@ -1982,6 +2164,7 @@ async function runSmokeTest() {
           customTheme: Boolean(document.getElementById('custom-theme-editor') && document.querySelectorAll('[data-color-key]').length >= 7),
           coverTheme: coverThemePreview,
           glassTheme: glassThemePreview,
+          glassFullRange,
           sidePlayerToggle: Boolean(document.getElementById('side-player-toggle')),
           pagination: ['liked-tracks-pagination', 'library-grid-pagination', 'search-pagination'].every(id => Boolean(document.getElementById(id))),
           capability: Boolean(capability && typeof capability.mode === 'string' && typeof capability.preference === 'string'),
@@ -2033,6 +2216,10 @@ async function runSmokeTest() {
         resolve({ ok: Object.values(checks).every(Boolean), checks });
       }, 1000))
     `, true);
+    const queueChecks = await runQueueUiSmoke(mainWindow);
+    result.checks.queue = Object.values(queueChecks).every(Boolean);
+    result.queueChecks = queueChecks;
+    result.ok = result.ok && result.checks.queue;
     mainWindow.setSize(1200, 520);
     const wideShortPages = await mainWindow.webContents.executeJavaScript(`
       new Promise(resolve => setTimeout(() => {
@@ -2176,6 +2363,17 @@ async function runSmokeTest() {
           blur: getComputedStyle(document.body).getPropertyValue('--glass-blur').trim(),
           reducedTransparency
         };
+        let glassRangeSync = true;
+        for (const opacity of [0, 100]) {
+          const palette = window.CozyCoverTheme.buildGlassThemePalette(undefined, {
+            style: 'liquid', tone: 'light', opacity, backgroundOpacity: opacity, cardOpacity: opacity, blur: 0
+          });
+          await window.cozyApi.sidePlayer.syncTheme({ kind: 'glass', ...palette, fontSize: 'standard' });
+          glassRangeSync = glassRangeSync && await waitFor(() => [
+            '--glass-main-opacity', '--glass-surface-opacity', '--glass-card-opacity'
+          ].every(variable => document.body.style.getPropertyValue(variable).trim() === opacity + '%') &&
+            document.body.style.getPropertyValue('--glass-blur').trim() === '0px');
+        }
         await window.cozyApi.sidePlayer.syncTheme({
           kind: 'custom',
           fontSize: 'enlarged',
@@ -2267,6 +2465,7 @@ async function runSmokeTest() {
           pinRoundTrip: unpinned?.pinned === false && repinned?.pinned === true,
           coverTheme: coverThemeApplied,
           glassTheme: glassThemeApplied,
+          glassRangeSync,
           lyricsLazyBeforeOpen,
           compactLyrics,
           compactLyricsFits,
@@ -2300,6 +2499,9 @@ async function runSmokeTest() {
         });
       }, 650))
     `, true);
+    const miniQueueChecks = await runQueueUiSmoke(compactWindow);
+    sideResult.checks.queue = Object.values(miniQueueChecks).every(Boolean);
+    sideResult.ok = sideResult.ok && sideResult.checks.queue;
     openFullPlayer();
     const fullOnlyAfterFull = !sidePlayerModeActive && mainWindow.isVisible() && !compactWindow.isVisible();
     await showSidePlayer();
@@ -2317,6 +2519,8 @@ async function runSmokeTest() {
       },
       sidePlayerChecks: sideResult.checks,
       sidePlayerMetrics: sideResult.metrics,
+      queueChecks,
+      miniQueueChecks,
       compactOpenState
     };
     console.log(`COZY_SMOKE_RESULT ${JSON.stringify(combined)}`);
@@ -2455,11 +2659,18 @@ function registerIpcHandlers() {
 
   ipcMain.handle('get-auth-status', async () => Boolean(await ensureAccessToken()));
   ipcMain.handle('get-public-config', () => ({ clientId, playbackPreference }));
+  ipcMain.handle('get-network-status', () => networkStatus());
+  ipcMain.handle('network-reconnected', async () => {
+    publishNetwork(null);
+    if (!IS_SMOKE_TEST && refreshToken && playbackCapabilityState === 'disconnected') await restoreSession();
+    return networkStatus();
+  });
   ipcMain.handle('appearance-get-support', () => getGlassAppearanceSupport());
   ipcMain.handle('theme-resolve-artwork', (_event, rawUrl) => resolveSidePlayerArtwork(rawUrl));
   ipcMain.handle('get-playback-capability', () => getPlaybackCapability());
   ipcMain.handle('set-playback-preference', async (_event, rawPreference) => {
     playbackPreference = normalizePlaybackPreference(rawPreference);
+    if (playbackPreference === 'external') playbackQueue.reset();
     saveConfig();
     if (accessToken) await configurePlaybackForAccount();
     else setPlaybackCapability('disconnected');
@@ -2539,6 +2750,26 @@ function registerIpcHandlers() {
     if (seedId) unique.delete(seedId);
     return Array.from(unique.values()).slice(0, 10);
   });
+  ipcMain.handle('get-similar-tracks', async (_event, rawSeedId) => {
+    const seedId = normalizeSpotifyId(rawSeedId, 'track ID');
+    const seed = await fetchWebApi(`v1/tracks/${seedId}`);
+    const artists = (seed?.artists || []).filter(artist => artist?.name).slice(0, 2);
+    const candidates = [];
+    for (const artist of artists) {
+      const query = encodeURIComponent(`artist:"${artist.name.replace(/"/g, '')}"`);
+      const data = await fetchWebApi(`v1/search?q=${query}&type=track&limit=10`);
+      candidates.push(...(data?.tracks?.items || []).filter(track =>
+        track?.artists?.some(candidate => candidate.id === artist.id)));
+    }
+    const seen = new Set([seed.uri]);
+    const tracks = candidates.filter(track => {
+      if (!normalizeTrack(track) || seen.has(track.uri) ||
+        (seed.external_ids?.isrc && track.external_ids?.isrc === seed.external_ids.isrc)) return false;
+      seen.add(track.uri);
+      return true;
+    });
+    return { seed: normalizeTrack(seed), tracks, description: 'Songs by this artist and collaborators.' };
+  });
   ipcMain.handle('search-tracks', async (_event, rawQuery, rawOffset = 0) => {
     const query = encodeURIComponent(normalizeQuery(rawQuery));
     const offset = Math.max(0, Math.min(990, Math.floor(Number(rawOffset) || 0)));
@@ -2564,34 +2795,75 @@ function registerIpcHandlers() {
 
   ipcMain.handle('get-player-state', async () => {
     if (!deviceId || usesExternalPlayback()) return null;
-    const state = await fetchWebApi('v1/me/player?additional_types=episode');
-    return state?.device?.id === deviceId ? state : null;
+    return readCurrentPlayback();
   });
   ipcMain.handle('get-queue', async () => {
-    if (usesExternalPlayback()) return { currentlyPlaying: null, queue: [], external: true };
-    const data = await fetchWebApi('v1/me/player/queue');
-    return { currentlyPlaying: data?.currently_playing || null, queue: Array.isArray(data?.queue) ? data.queue : [] };
+    if (usesExternalPlayback()) {
+      if (!accessToken || !net.isOnline()) return { currentlyPlaying: null, queue: [], external: true, managed: false };
+      try {
+        const data = await fetchWebApi('v1/me/player/queue');
+        return {
+          currentlyPlaying: data?.currently_playing || null,
+          queue: Array.isArray(data?.queue) ? data.queue : [],
+          external: true,
+          managed: false
+        };
+      } catch (error) {
+        console.warn('[Queue] Could not read the Spotify App queue:', error.message);
+        return { currentlyPlaying: null, queue: [], external: true, managed: false };
+      }
+    }
+    if (playbackQueue.entries.length > 0) return playbackQueue.snapshot();
+    if (!accessToken || !net.isOnline()) return playbackQueue.snapshot();
+    const [player, data] = await Promise.all([
+      fetchWebApi('v1/me/player?additional_types=episode'),
+      fetchWebApi('v1/me/player/queue')
+    ]);
+    const current = player?.device?.id === deviceId ? player.item : data?.currently_playing;
+    if (current && playbackQueue.adopt(current, data?.queue || [])) return playbackQueue.snapshot();
+    return { currentlyPlaying: data?.currently_playing || null, queue: Array.isArray(data?.queue) ? data.queue : [], managed: false };
   });
-  ipcMain.handle('add-to-queue', (_event, rawTrackUri) => {
-    const params = new URLSearchParams({ uri: normalizeSpotifyUri(rawTrackUri) });
-    params.set('device_id', requirePlaybackDevice());
-    return fetchWebApi(`v1/me/player/queue?${params}`, 'POST');
-  });
-  ipcMain.handle('play-track', async (_event, rawTrackUri) => {
+  ipcMain.handle('add-to-queue', (_event, rawTrackUri) => playbackCommand(async () => {
+    const uri = normalizeSpotifyUri(rawTrackUri, ['track']);
+    const track = await fetchWebApi(`v1/tracks/${uri.split(':')[2]}`);
+    if (playbackQueue.entries.length === 0 && (await playbackQueue.observe())?.item) {
+      const player = await playbackQueue.readState();
+      const data = await fetchWebApi('v1/me/player/queue');
+      if (player?.item && playbackQueue.adopt(player.item, data?.queue || [])) return playbackQueue.edit('add', track);
+    }
+    if (playbackQueue.index < 0) return playbackQueue.stage(track);
+    return playbackQueue.edit('add', track);
+  }));
+  ipcMain.handle('edit-queue', (_event, action, value, revision) => playbackCommand(() => {
+    if (!['remove', 'move', 'play', 'shuffle'].includes(action)) throw new Error('Invalid queue action.');
+    return playbackQueue.edit(action, value, revision);
+  }));
+  ipcMain.handle('play-track', (_event, rawTrackUri) => playbackCommand(async () => {
     const trackUri = normalizeSpotifyUri(rawTrackUri, ['track']);
     if (usesExternalPlayback()) return openSpotifyUriExternally(trackUri, ['track']);
-    const endpoint = `v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`;
-    return fetchWebApi(endpoint, 'PUT', { uris: [trackUri] });
-  });
-  ipcMain.handle('play-tracks', async (_event, rawUris) => {
+    try {
+      const track = await fetchWebApi(`v1/tracks/${trackUri.split(':')[2]}`);
+      return await playbackQueue.start([track]);
+    } catch (error) {
+      if (!isPlaybackRestrictionError(error)) throw error;
+      return fallbackToSpotifyApp(trackUri, ['track'], error);
+    }
+  }));
+  ipcMain.handle('play-tracks', (_event, rawUris) => playbackCommand(async () => {
     if (!Array.isArray(rawUris) || rawUris.length === 0) throw new Error('No playable tracks were provided.');
-    if (rawUris.length > 100) throw new Error('Spotify accepts at most 100 explicit tracks per playback request.');
-    const uris = rawUris.map(uri => normalizeSpotifyUri(uri, ['track']));
+    if (rawUris.length > 10000) throw new Error('Choose a list with at most 10,000 songs.');
+    const tracks = rawUris.map(normalizeTrack).filter(Boolean);
+    const uris = tracks.map(track => track.uri);
+    if (!uris.length) throw new Error('No playable tracks were provided.');
     if (usesExternalPlayback()) return openSpotifyUriExternally(uris[0], ['track']);
-    const endpoint = `v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`;
-    return fetchWebApi(endpoint, 'PUT', { uris });
-  });
-  ipcMain.handle('play-context', async (_event, rawContextUri, rawOffsetUri) => {
+    try {
+      return await playbackQueue.start(tracks);
+    } catch (error) {
+      if (!isPlaybackRestrictionError(error)) throw error;
+      return fallbackToSpotifyApp(uris[0], ['track'], error);
+    }
+  }));
+  ipcMain.handle('play-context', (_event, rawContextUri, rawOffsetUri) => playbackCommand(async () => {
     const contextUri = normalizeSpotifyUri(rawContextUri, ['playlist', 'album', 'artist']);
     const offset = normalizeContextOffset(rawOffsetUri);
     if (usesExternalPlayback()) {
@@ -2599,22 +2871,56 @@ function registerIpcHandlers() {
         ? openSpotifyUriExternally(offset.uri, ['track'])
         : openSpotifyUriExternally(contextUri, ['playlist', 'album', 'artist']);
     }
-    const body = { context_uri: contextUri };
-    if (offset?.position !== undefined) body.offset = { position: offset.position };
-    else if (offset?.uri) body.offset = { uri: normalizeSpotifyUri(offset.uri, ['track']) };
-    const endpoint = `v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`;
-    return fetchWebApi(endpoint, 'PUT', body);
-  });
-  ipcMain.handle('pause-track', () => fetchWebApi(`v1/me/player/pause?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'PUT'));
-  ipcMain.handle('resume-track', () => fetchWebApi(`v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'PUT'));
-  ipcMain.handle('next-track', () => fetchWebApi(`v1/me/player/next?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST'));
-  ipcMain.handle('prev-track', () => fetchWebApi(`v1/me/player/previous?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST'));
+    try {
+      const [, type, id] = contextUri.split(':');
+      if (type === 'artist') {
+        playbackQueue.reset();
+        return await fetchWebApi(`v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'PUT', { context_uri: contextUri });
+      }
+      let info;
+      let tracks;
+      try {
+        info = await fetchWebApi(`v1/${type}s/${id}`);
+        tracks = type === 'playlist'
+          ? (await fetchAllPages(`v1/playlists/${id}/items?limit=50`, data => data?.items, 10000))
+            .map((entry, position) => ({ ...(entry?.item || entry?.track), cozy_context_position: position }))
+          : (await fetchAllPages(`v1/albums/${id}/tracks?limit=50`, data => data?.items, 10000))
+            .map((track, position) => ({ ...track, album: { name: info.name, images: info.images }, cozy_context_position: position }));
+      } catch (error) {
+        if (error.status !== 403) throw error;
+        // Restricted followed playlists can still play through their native context.
+        const body = { context_uri: contextUri };
+        if (offset) body.offset = offset.position !== undefined ? { position: offset.position } : { uri: offset.uri };
+        const result = await fetchWebApi(`v1/me/player/play?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'PUT', body);
+        playbackQueue.reset();
+        return result;
+      }
+      const playable = tracks.filter(track => normalizeTrack(track));
+      const selectedIndex = offset?.position !== undefined
+        ? playable.findIndex(track => track.cozy_context_position === offset.position)
+        : offset?.uri ? playable.findIndex(track => track.uri === offset.uri) : 0;
+      if (selectedIndex < 0 || (offset?.uri && playable[selectedIndex]?.uri !== offset.uri)) {
+        throw new Error('This playlist changed or the selected song is unavailable. Refresh the playlist and try again.');
+      }
+      return await playbackQueue.start(playable, selectedIndex, { uri: contextUri, name: info.name || 'Playlist' }, offset);
+    } catch (error) {
+      if (!isPlaybackRestrictionError(error)) throw error;
+      const fallbackUri = offset?.uri || contextUri;
+      const fallbackTypes = offset?.uri ? ['track'] : ['playlist', 'album', 'artist'];
+      return fallbackToSpotifyApp(fallbackUri, fallbackTypes, error);
+    }
+  }));
+  ipcMain.handle('pause-track', () => playbackCommand(() => playbackQueue.transport('pause')));
+  ipcMain.handle('resume-track', () => playbackCommand(() => playbackQueue.index < 0 && playbackQueue.entries.length
+    ? playbackQueue.edit('play', playbackQueue.entries[0].queueId) : playbackQueue.transport('resume')));
+  ipcMain.handle('next-track', () => playbackCommand(() => playbackQueue.entries.length > 0
+    ? playbackQueue.edit('next') : fetchWebApi(`v1/me/player/next?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST')));
+  ipcMain.handle('prev-track', () => playbackCommand(() => playbackQueue.index >= 0
+    ? playbackQueue.edit('previous') : fetchWebApi(`v1/me/player/previous?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST')));
   ipcMain.handle('seek-track', (_event, rawPositionMs) => {
     const positionMs = Math.max(0, Math.floor(Number(rawPositionMs) || 0));
     if (IS_SMOKE_TEST) return { positionMs };
-    const params = new URLSearchParams({ position_ms: String(positionMs) });
-    params.set('device_id', requirePlaybackDevice());
-    return fetchWebApi(`v1/me/player/seek?${params}`, 'PUT');
+    return playbackCommand(() => playbackQueue.transport('seek', positionMs));
   });
   ipcMain.handle('set-volume', (_event, rawVolumePercent) => {
     const volumePercent = Math.max(0, Math.min(100, Math.round(Number(rawVolumePercent) || 0)));
@@ -2661,11 +2967,20 @@ if (!hasSingleInstanceLock) {
     loadConfig();
     registerIpcHandlers();
     createWindow();
+    if (!IS_SMOKE_TEST) {
+      // Keep long queues supplied when both renderer windows are minimized.
+      queueMaintenanceInterval = setInterval(() => {
+        if (playbackQueue.index >= 0 && deviceId && net.isOnline()) {
+          void readCurrentPlayback().catch(() => {});
+        }
+      }, 4000);
+    }
     app.on('activate', focusPreferredWindow);
   });
 }
 
 app.on('will-quit', () => {
+  clearInterval(queueMaintenanceInterval);
   clearTimeout(sidePlayerBoundsSaveTimer);
   rememberSidePlayerBounds();
   saveConfig();

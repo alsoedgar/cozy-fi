@@ -8,6 +8,11 @@ function subscribe(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('cozyApi', {
+  network: {
+    getStatus: () => ipcRenderer.invoke('get-network-status'),
+    reconnect: () => ipcRenderer.invoke('network-reconnected'),
+    onStatus: callback => subscribe('network-status', callback)
+  },
   auth: {
     getStatus: () => ipcRenderer.invoke('get-auth-status'),
     getConfig: () => ipcRenderer.invoke('get-public-config'),
@@ -36,6 +41,7 @@ contextBridge.exposeInMainWorld('cozyApi', {
     getLikedTracks: () => ipcRenderer.invoke('get-liked-tracks'),
     getTopTracks: () => ipcRenderer.invoke('get-top-tracks'),
     getPersonalizedTracks: seedId => ipcRenderer.invoke('get-personalized-tracks', seedId),
+    getSimilarTracks: seedId => ipcRenderer.invoke('get-similar-tracks', seedId),
     search: (query, offset) => ipcRenderer.invoke('search-tracks', query, offset),
     createPlaylist: name => ipcRenderer.invoke('create-playlist', name),
     openExternal: url => ipcRenderer.invoke('open-spotify-link', url),
@@ -43,6 +49,8 @@ contextBridge.exposeInMainWorld('cozyApi', {
     getPlaybackCapability: () => ipcRenderer.invoke('get-playback-capability'),
     setPlaybackPreference: preference => ipcRenderer.invoke('set-playback-preference', preference),
     getQueue: () => ipcRenderer.invoke('get-queue'),
+    editQueue: (action, value, revision) => ipcRenderer.invoke('edit-queue', action, value, revision),
+    onQueueChanged: callback => subscribe('spotify-queue-changed', callback),
     addToQueue: trackUri => ipcRenderer.invoke('add-to-queue', trackUri),
     playTrack: trackUri => ipcRenderer.invoke('play-track', trackUri),
     playTracks: trackUris => ipcRenderer.invoke('play-tracks', trackUris),

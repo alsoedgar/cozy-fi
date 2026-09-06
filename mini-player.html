@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
   <title>Cozy-Fi Side Player</title>
   <link rel="stylesheet" href="mini-player.css">
+  <link rel="stylesheet" href="player-extras.css">
 </head>
 <body class="is-loading">
   <main class="mini-window" id="mini-window" aria-busy="true">
@@ -23,7 +24,7 @@
 
     <section class="mini-player-panel" aria-label="Side player">
       <div class="mini-status-row">
-        <span class="mini-eyebrow">SIDE A · NOW BREWING</span>
+        <span class="network-status" data-network-status role="status" aria-live="polite">ONLINE</span>
         <div class="mini-status-actions">
           <div class="mini-view-tabs" role="tablist" aria-label="Side player view">
             <button class="mini-view-tab active" id="mini-cover-tab" type="button" role="tab" aria-selected="true" aria-controls="mini-art-frame">PLAYER</button>
@@ -93,7 +94,15 @@
       </div>
     </section>
     <button type="button" class="resize-corner" id="mini-resize" aria-label="Resize side player" title="Drag to resize. Arrow keys resize when focused."></button>
+    <div class="mini-queue-toolbar">
+      <button type="button" id="mini-shuffle" aria-pressed="false" aria-label="Shuffle upcoming songs" disabled>SHUFFLE</button>
+      <button type="button" id="mini-similar" disabled>SIMILAR</button>
+      <button type="button" id="mini-queue" aria-controls="mini-queue-popover" aria-expanded="false">QUEUE</button>
+    </div>
   </main>
+  <div id="mini-queue-popover" style="display:none;"></div>
+  <script src="js/network.js"></script>
+  <script src="js/queue-panel.js"></script>
   <script src="js/cover-theme.js"></script>
   <script src="js/lyrics.js"></script>
   <script src="js/mini-player.js"></script>

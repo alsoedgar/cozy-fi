@@ -123,9 +123,14 @@
   function normalizeGlassOptions(value = {}) {
     const style = GLASS_STYLES.has(value.style) ? value.style : 'liquid';
     const tone = GLASS_TONES.has(value.tone) ? value.tone : 'cover';
-    const opacity = Math.round(clamp(Number(value.opacity) || 78, 65, 96));
-    const blur = Math.round(clamp(Number(value.blur) || 26, 8, 48));
-    return { style, tone, opacity, blur };
+    const number = (raw, fallback, maximum = 100) => Math.round(clamp(
+      raw !== null && raw !== undefined && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : fallback, 0, maximum
+    ));
+    const opacity = number(value.opacity, 78);
+    const backgroundOpacity = number(value.backgroundOpacity, Math.max(0, opacity - 12));
+    const cardOpacity = number(value.cardOpacity, Math.min(100, opacity + 7));
+    const blur = number(value.blur, 26, 64);
+    return { style, tone, opacity, backgroundOpacity, cardOpacity, blur };
   }
 
   function representativeColor(bucket) {

@@ -47,6 +47,21 @@ document.addEventListener('DOMContentLoaded', () => {
     pollInFlight: false,
     scrubbing: false
   };
+  const queuePanel = new window.CozyQueuePanel({
+    api: api.spotify,
+    panel: document.getElementById('mini-queue-popover'),
+    toggle: document.getElementById('mini-queue'),
+    shuffle: document.getElementById('mini-shuffle'),
+    similar: document.getElementById('mini-similar'),
+    getTrack: () => state.track,
+    canControl: () => state.authenticated && state.capability.mode === 'standalone',
+    onPlayback: () => { setTimeout(refreshPlayback, 350); },
+    onError: setMessage
+  });
+  window.cozyQueuePanel = queuePanel;
+  api.spotify.onQueueChanged(() => { setTimeout(refreshPlayback, 650); });
+  window.addEventListener('cozy-network-changed', () => { queuePanel.updateControls(); void refreshPlayback(); });
+  void queuePanel.refresh();
   let playbackPollTimer = null;
   let progressTimer = null;
   let activeCoverSource = '';
@@ -199,8 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const tone = ['light', 'dark'].includes(theme.options?.tone)
           ? theme.options.tone
           : contrastRatio(primary, '#ffffff') >= 7 ? 'dark' : 'light';
-        const mainOpacity = Math.max(45, options.opacity - 12);
-        const cardOpacity = Math.min(98, options.opacity + 7);
+        const mainOpacity = options.backgroundOpacity;
+        const cardOpacity = options.cardOpacity;
         document.body.classList.add('theme-glass', `glass-style-${style}`, `glass-tone-${tone}`);
         Object.assign(variables, {
           '--glass-base-primary': primary,
@@ -522,6 +537,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function render() {
+    queuePanel.updateControls();
     const mode = state.capability?.mode || 'disconnected';
     const capabilityLabels = {
       standalone: state.capability?.tier === 'premium' ? 'PREMIUM · LOCAL' : 'LOCAL PLAYER',
@@ -549,7 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
       durationMs: state.durationMs
     } : null);
 
-    const local = state.authenticated && mode === 'standalone';
+    const local = state.authenticated && mode === 'standalone' && window.CozyNetwork?.online !== false;
     const external = state.authenticated && mode === 'external';
     elements.previous.disabled = state.controlBusy || !local;
     elements.next.disabled = state.controlBusy || !local;
@@ -582,6 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
       state.pollInFlight ||
       !state.authenticated ||
       state.capability.mode !== 'standalone' ||
+      window.CozyNetwork?.online === false ||
       document.hidden
     ) return;
     state.pollInFlight = true;

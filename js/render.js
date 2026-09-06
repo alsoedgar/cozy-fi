@@ -308,7 +308,7 @@ class RenderEngine {
         event.stopPropagation();
         try {
           await this.spotify.addToQueue(trackData.spotifyUri);
-          window.showCozyStatus?.(`Added “${trackData.title}” to your Spotify queue.`);
+          window.showCozyStatus?.(`Added “${trackData.title}” to your queue.`);
         } catch (error) {
           console.error(error);
         }
@@ -326,7 +326,7 @@ class RenderEngine {
           const request = PlaybackContext.createPlaybackRequest(trackData, playQueue, idx);
           const result = request.type === 'context'
             ? await this.spotify.playContext(request.contextUri, request.offset)
-            : await this.spotify.playTracks(request.uris);
+            : await this.spotify.playTracks(playQueue.slice(idx));
           this.onTrackSelectCallback(trackData, true, Boolean(result?.external));
         } catch (error) {
           console.error('Could not start Spotify playback:', error);

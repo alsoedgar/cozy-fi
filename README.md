@@ -23,6 +23,8 @@ Cozy-Fi gives a Premium listener a focused, customizable desktop interface for t
 - Play through Cozy-Fi's local Spotify Connect output on Premium accounts, or use Spotify-link mode as a fallback.
 - Select any playlist or album song and keep its list order for automatic advance and previous/next navigation.
 - Control play/pause, seeking, volume, queue, likes, and playlist creation.
+- Shuffle upcoming songs, find more music by the playing song's artists, and add, remove or reorder songs from a queue popup in either player.
+- See when the device is offline or Spotify cannot be reached, while keeping the current session's queue and local theme settings.
 - Open optional lyrics in either player with synchronized line highlighting, selectable timed lines, broader LRCLIB matching for alternate releases, and private local `.lrc`/`.txt` fallbacks.
 - Switch between the full responsive app and a resizable, pinnable side player.
 - Use Morning Lo-Fi or Soft Sunset, match the interface to the current cover, add translucent frosted/liquid-glass surfaces, enlarge the typography, or create and save custom seven-color palettes.
@@ -79,6 +81,17 @@ Settings includes three playback choices:
 - **Cozy-Fi standalone** explicitly requests the same Premium-only local-player behavior.
 - **Spotify app / browser** does not start the local player. Selecting a track or context opens it in Spotify, and transport/queue controls remain there.
 
+## Queue and discovery
+
+Select a playlist or album song to start at that position and continue through its remaining songs. **QUEUE** opens the shared queue in the full app or Side Player. Use **+ QUEUE** in the library/search results, or search inside the popup, to add music. Added songs play before the remaining playlist in list order. Adding music before playback builds a queue without starting audio; choose **PLAY** when ready.
+
+- Use each row's **×** to remove just that occurrence, **↑ / ↓** to move it, or drag it to another row. **PLAY** jumps to that queue position and keeps the songs after it.
+- **SHUFFLE** mixes upcoming songs while keeping the current song. Turning it off restores the original order of the remaining songs, with manually added songs first.
+- **SIMILAR** uses the song currently playing to find other tracks by its artists and collaborators. Results identify their seed song and can be added individually. This is catalog matching, not Spotify's audio-based recommendation engine.
+- Changes synchronize across both windows. The queue is kept in memory for the app session; going offline does not erase it. Logout clears it. An **OFFLINE** badge is distinct from **SPOTIFY UNREACHABLE** and from an account that is not connected.
+
+Spotify's public API has no queue removal or reordering endpoint. Cozy-Fi therefore manages the playback list for sessions started here. An edit resubmits the current song and upcoming order while preserving position and paused state; the player may briefly rebuffer. Native playlist playback is used until the list is edited or shuffled. Longer editable lists use rolling playback windows so the API's 100-track request size does not truncate the rest of the session. Playlist loading is bounded at 10,000 items; library browsing still displays up to 500. Spotify App mode keeps playback controls in Spotify, and queues started elsewhere are shown for viewing until a Cozy-Fi session is selected.
+
 ## Lyrics
 
 Open the full player or side player and select **LYRICS**. Cozy-Fi uses [LRCLIB](https://lrclib.net/docs), which is free to access and does not require an API key or a separate user account.
@@ -107,7 +120,7 @@ The Web API refresh token stays in Electron's user-data directory only when oper
 
 Open **MENU → Settings** to choose a preset theme, **Cover Match**, **Cozy Glass**, or **Custom**. Cover Match samples the current Spotify artwork locally and builds an accessible palette for the full app and side player. Choose a soft gradient, vivid gradient, or solid backdrop; let brightness follow the cover or force a light/dark result; and adjust color strength from subtle to saturated. Select **SAVE PALETTE** to remember those choices. When no artwork is available, Cozy-Fi uses a calm fallback palette instead of flashing or leaving an unfinished background.
 
-Cozy Glass adds either a softly frosted treatment or a more luminous liquid-glass treatment without changing Cozy-Fi's page layout. Its tint can follow the current cover or use a stable café-light or midnight base. Surface opacity and backdrop blur are adjustable and update both windows live. Windows 11 22H2 and newer use native Acrylic or Mica, macOS uses native vibrancy, and older Windows/Linux use the same themed CSS glass as a graceful fallback. Cozy-Fi deliberately keeps ordinary resizable windows instead of relying on Electron's restricted fully transparent-window mode. If the operating system requests reduced transparency, surfaces become nearly opaque and backdrop blur is removed for readability.
+Cozy Glass adds either a softly frosted treatment or a liquid-glass treatment with rounded edges, reflective rims and soft shadows. Its tint can follow the current cover or use a stable café-light or midnight base. Background, surface and card opacity each range independently from 0–100%; backdrop blur ranges from 0–64px. Changes update both windows live and **SAVE PALETTE** remembers them. Try 20% background, 35% surfaces, 25% cards and 36px blur for a lighter glass look. Windows 11 22H2 and newer use native Acrylic or Mica, macOS uses native vibrancy, and older Windows/Linux use themed CSS glass as a fallback. The OS controls how the desktop appears behind the app; these settings change the glass tint, not the opacity of text and controls. Cozy-Fi keeps ordinary resizable windows instead of Electron's restricted fully transparent-window mode. If the operating system requests reduced transparency, surfaces become nearly opaque and backdrop blur is removed for readability.
 
 A custom palette controls the background, surface, card, primary text, muted text, accent, and outline colors. Name the palette and select **SAVE PALETTE** to keep it locally. Saved theme settings and font-size preferences stay on that computer and update the full app and side player together.
 
@@ -125,7 +138,7 @@ npm start
 
 `npm run build:librespot` builds the pinned, patched playback engine for the current operating system and CPU architecture, records its SHA-256 in `librespot-checksums.json`, and marks it executable on macOS/Linux. Native playback binaries cannot be safely cross-compiled by the packaging command: each package must be created on a matching host.
 
-`npm test` runs JavaScript syntax checks, playback-context tests, cover-color extraction/contrast tests, glass option/palette tests, expanded lyric-ranking/import/LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. It checks every page and the navigation drawer for reachable content, plus the LRCLIB and local-lyrics IPC/tab/scrolling paths in both players, the Side Player's lyrics-only layout and timed-line seeking, artwork, resizing, single-window transitions, loading states, preset/custom/cover-matched/glass themes, native-appearance capability reporting, pagination, and playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
+`npm test` runs JavaScript syntax checks, playback-context and queue tests, cover-color extraction/contrast tests, glass option/palette tests, expanded lyric-ranking/import/LRC parser tests, and a disconnected Electron UI smoke test at the app's minimum supported size. Queue tests cover duplicate occurrences, shuffle, add/remove/reorder, preserving paused position, long lists, rapid commands, stale edits and session changes. The UI smoke test exercises queue popups, search/add, similar-song results, offline indicators, Escape dismissal and the 0–100% glass range in both windows. It also checks every page, navigation, lyrics, artwork, resizing, theme synchronization and existing playback controls. On a headless Linux build machine, run it through Xvfb: `xvfb-run -a npm test`. A real Spotify integration test still requires a dedicated allowlisted Premium test account and cannot run in CI without credentials.
 
 To create and verify an unpacked build for the current host and architecture:
 

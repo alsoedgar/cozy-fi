@@ -39,6 +39,10 @@ class ThemeManager {
     this.glassToneSelect = document.getElementById('glass-theme-tone');
     this.glassOpacityInput = document.getElementById('glass-theme-opacity');
     this.glassOpacityOutput = document.getElementById('glass-theme-opacity-output');
+    this.glassBackgroundInput = document.getElementById('glass-theme-background-opacity');
+    this.glassBackgroundOutput = document.getElementById('glass-theme-background-opacity-output');
+    this.glassCardInput = document.getElementById('glass-theme-card-opacity');
+    this.glassCardOutput = document.getElementById('glass-theme-card-opacity-output');
     this.glassBlurInput = document.getElementById('glass-theme-blur');
     this.glassBlurOutput = document.getElementById('glass-theme-blur-output');
     this.glassFeedbackEl = document.getElementById('glass-theme-feedback');
@@ -209,6 +213,10 @@ class ThemeManager {
     if (this.glassToneSelect) this.glassToneSelect.value = this.glassOptions.tone;
     if (this.glassOpacityInput) this.glassOpacityInput.value = String(this.glassOptions.opacity);
     if (this.glassOpacityOutput) this.glassOpacityOutput.textContent = `${this.glassOptions.opacity}%`;
+    this.glassBackgroundInput.value = String(this.glassOptions.backgroundOpacity);
+    this.glassBackgroundOutput.textContent = `${this.glassOptions.backgroundOpacity}%`;
+    this.glassCardInput.value = String(this.glassOptions.cardOpacity);
+    this.glassCardOutput.textContent = `${this.glassOptions.cardOpacity}%`;
     if (this.glassBlurInput) this.glassBlurInput.value = String(this.glassOptions.blur);
     if (this.glassBlurOutput) this.glassBlurOutput.textContent = `${this.glassOptions.blur}px`;
 
@@ -219,9 +227,13 @@ class ThemeManager {
         style: this.glassStyleSelect?.value,
         tone: this.glassToneSelect?.value,
         opacity: this.glassOpacityInput?.value,
+        backgroundOpacity: this.glassBackgroundInput.value,
+        cardOpacity: this.glassCardInput.value,
         blur: this.glassBlurInput?.value
       });
       if (this.glassOpacityOutput) this.glassOpacityOutput.textContent = `${this.glassOptions.opacity}%`;
+      this.glassBackgroundOutput.textContent = `${this.glassOptions.backgroundOpacity}%`;
+      this.glassCardOutput.textContent = `${this.glassOptions.cardOpacity}%`;
       if (this.glassBlurOutput) this.glassBlurOutput.textContent = `${this.glassOptions.blur}px`;
       this.applyGlassPalette();
       this.updateThemeBoxesUI();
@@ -231,6 +243,8 @@ class ThemeManager {
     this.glassStyleSelect?.addEventListener('change', updateOptions);
     this.glassToneSelect?.addEventListener('change', updateOptions);
     this.glassOpacityInput?.addEventListener('input', updateOptions);
+    this.glassBackgroundInput.addEventListener('input', updateOptions);
+    this.glassCardInput.addEventListener('input', updateOptions);
     this.glassBlurInput?.addEventListener('input', updateOptions);
   }
 
@@ -529,8 +543,8 @@ class ThemeManager {
     const colors = this.glassPalette.colors;
     const glass = this.glassPalette.glass;
     const opacity = this.glassOptions.opacity;
-    const mainOpacity = Math.max(45, opacity - 12);
-    const cardOpacity = Math.min(98, opacity + 7);
+    const mainOpacity = this.glassOptions.backgroundOpacity;
+    const cardOpacity = this.glassOptions.cardOpacity;
     this.clearThemeClassesAndStyles();
     document.body.classList.add('theme-glass', `glass-style-${glass.style}`, `glass-tone-${this.glassPalette.mood}`);
     const accentHover = this.mixHex(colors.accentColor, colors.borderColor, 0.18);

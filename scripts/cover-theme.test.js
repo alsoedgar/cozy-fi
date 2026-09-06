@@ -29,14 +29,29 @@ assert.deepEqual(normalizeGlassOptions({}), {
   style: 'liquid',
   tone: 'cover',
   opacity: 78,
+  backgroundOpacity: 66,
+  cardOpacity: 85,
   blur: 26
 });
 assert.deepEqual(normalizeGlassOptions({ style: 'flat', tone: 'blue', opacity: 2, blur: 900 }), {
   style: 'liquid',
   tone: 'cover',
-  opacity: 65,
-  blur: 48
+  opacity: 2,
+  backgroundOpacity: 0,
+  cardOpacity: 9,
+  blur: 64
 });
+for (const opacity of [0, 1, 50, 100]) {
+  const options = normalizeGlassOptions({ opacity, backgroundOpacity: opacity, cardOpacity: opacity, blur: 0 });
+  assert.equal(options.opacity, opacity);
+  assert.equal(options.backgroundOpacity, opacity);
+  assert.equal(options.cardOpacity, opacity);
+  assert.equal(options.blur, 0);
+  assert.deepEqual(normalizeGlassOptions(JSON.parse(JSON.stringify(options))), options);
+}
+assert.equal(normalizeGlassOptions({ opacity: -20 }).opacity, 0);
+assert.equal(normalizeGlassOptions({ opacity: 200 }).opacity, 100);
+assert.equal(normalizeGlassOptions({ opacity: 'invalid' }).opacity, 78);
 
 const width = 8;
 const height = 8;

@@ -155,6 +155,7 @@ class SpotifyClient {
   getLikedTracks() { return this.bridge.spotify.getLikedTracks(); }
   getTopTracks() { return this.bridge.spotify.getTopTracks(); }
   getRecommendations(seedId) { return this.bridge.spotify.getPersonalizedTracks(seedId); }
+  getSimilarTracks(seedId) { return this.bridge.spotify.getSimilarTracks(seedId); }
   search(query, offset = 0) { return this.bridge.spotify.search(query, offset); }
   createPlaylist(_userId, name) { return this.withCurrentSession(() => this.bridge.spotify.createPlaylist(name)); }
   openExternal(url) { return this.bridge.spotify.openExternal(url); }
@@ -166,6 +167,8 @@ class SpotifyClient {
     return capability;
   }
   getQueue() { return this.bridge.spotify.getQueue(); }
+  editQueue(action, value, revision) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.editQueue(action, value, revision)); }
+  onQueueChanged(callback) { return this.bridge.spotify.onQueueChanged(callback); }
   playTrack(trackUri) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.playTrack(trackUri)); }
   playTracks(trackUris) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.playTracks(trackUris)); }
   playContext(contextUri, offset) { return this.enqueuePlaybackCommand(() => this.bridge.spotify.playContext(contextUri, offset)); }

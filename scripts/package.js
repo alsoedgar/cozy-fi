@@ -85,7 +85,7 @@ function platformIcon() {
     } : undefined,
     asar: { unpack: `**/${nativeBinaryName}` },
     ignore: [
-      /^\/(?:dist|\.chrome_profile|\.github|scripts|patches)(?:\/|$)/,
+      /^\/(?:dist|\.chrome_profile|\.preview_profile|\.cache|\.github|scripts|patches)(?:\/|$)/,
       /^\/(?:task\.md|walkthrough\.md|styles\.css|package-lock\.json)$/,
       /^\/app-icon\.(?:ico|icns)$/,
       ignoredSourceBinary

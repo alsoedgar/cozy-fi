@@ -69,7 +69,7 @@ body.theme-glass {
 body.theme-glass .mini-window {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--glass-sheen) 16%, transparent), transparent 34%),
-    var(--bg-secondary);
+    transparent;
   border-radius: 16px;
   box-shadow: 0 12px 36px color-mix(in srgb, var(--border-color) 22%, transparent),
     inset 0 1px 0 color-mix(in srgb, var(--glass-sheen) 56%, transparent);

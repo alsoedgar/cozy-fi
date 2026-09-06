@@ -6,8 +6,10 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none';">
   <title>Cozy-Fi</title>
   <link rel="stylesheet" href="cozy-fi.css">
+  <link rel="stylesheet" href="player-extras.css">
 </head>
 <body>
+  <span class="network-status main-network-status" data-network-status role="status" aria-live="polite">ONLINE</span>
   <!-- Sidebar Toggle Button (floating menu button) -->
   <button class="sidebar-toggle-btn" id="sidebar-toggle" aria-label="Toggle Navigation" aria-controls="app-sidebar" aria-expanded="false">
     MENU
@@ -298,12 +300,22 @@
                 </label>
                 <label class="glass-range-field" for="glass-theme-opacity">
                   <span>Surface opacity</span>
-                  <input type="range" id="glass-theme-opacity" min="65" max="96" step="1" value="78">
+                  <input type="range" id="glass-theme-opacity" min="0" max="100" step="1" value="78">
                   <output id="glass-theme-opacity-output" for="glass-theme-opacity">78%</output>
+                </label>
+                <label class="glass-range-field" for="glass-theme-background-opacity">
+                  <span>Background opacity</span>
+                  <input type="range" id="glass-theme-background-opacity" min="0" max="100" step="1" value="66">
+                  <output id="glass-theme-background-opacity-output" for="glass-theme-background-opacity">66%</output>
+                </label>
+                <label class="glass-range-field" for="glass-theme-card-opacity">
+                  <span>Card opacity</span>
+                  <input type="range" id="glass-theme-card-opacity" min="0" max="100" step="1" value="85">
+                  <output id="glass-theme-card-opacity-output" for="glass-theme-card-opacity">85%</output>
                 </label>
                 <label class="glass-range-field" for="glass-theme-blur">
                   <span>Backdrop blur</span>
-                  <input type="range" id="glass-theme-blur" min="8" max="48" step="1" value="26">
+                  <input type="range" id="glass-theme-blur" min="0" max="64" step="1" value="26">
                   <output id="glass-theme-blur-output" for="glass-theme-blur">26px</output>
                 </label>
               </div>
@@ -311,6 +323,7 @@
                 <span class="glass-theme-status-icon" aria-hidden="true"></span>
                 <span class="glass-theme-feedback" id="glass-theme-feedback" role="status" aria-live="polite">Checking native backdrop support…</span>
               </div>
+              <p class="glass-theme-feedback">Set each tint from clear (0%) to solid (100%). Try 20% background, 35% surfaces, 25% cards and 36px blur for a light liquid-glass look. Desktop transparency depends on your operating system.</p>
             </div>
             <div class="custom-theme-editor" id="custom-theme-editor" hidden>
               <div class="custom-theme-toolbar">
@@ -423,6 +436,7 @@
 
     <div class="player-center-controls">
       <div class="player-buttons">
+        <button class="player-btn" id="player-shuffle-btn" title="Shuffle upcoming songs" aria-label="Shuffle upcoming songs" aria-pressed="false" disabled>SHUFFLE</button>
         <button class="player-btn" id="player-prev-btn" title="Previous">PREV</button>
         <button class="player-btn play-pause-btn" id="player-play-btn" title="Play">PLAY</button>
         <button class="player-btn" id="player-next-btn" title="Next">NEXT</button>
@@ -449,17 +463,17 @@
           <div class="volume-thumb" id="volume-thumb"></div>
         </div>
       </div>
-      <button class="player-btn" id="player-queue-btn" title="Queue" aria-controls="queue-overlay" aria-expanded="false">LIST</button>
+      <button class="player-btn" id="player-similar-btn" title="Find songs like the one playing" disabled>SIMILAR</button>
+      <button class="player-btn" id="player-queue-btn" title="Queue" aria-controls="queue-overlay" aria-expanded="false">QUEUE</button>
     </div>
   </footer>
 
   <!-- Floating queue overlay -->
-  <div id="queue-overlay" class="retro-border" role="region" aria-label="Upcoming queue" tabindex="-1" style="display: none; position: fixed; bottom: 110px; right: 24px; width: 320px; max-height: min(400px, calc(100vh - 134px)); overflow-y: auto; z-index: 1000; padding: 16px; background-color: var(--bg-secondary);">
-    <div style="display:flex;align-items:center;justify-content:space-between;font-family: 'Space Mono', monospace; font-weight: 700; font-size: 0.9rem; margin-bottom: 12px; border-bottom: 2px solid var(--border-color); padding-bottom: 6px;"><span>UPCOMING QUEUE</span><button class="player-btn" id="queue-close-btn" aria-label="Close queue">CLOSE</button></div>
-    <div id="queue-list-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
-  </div>
+  <div id="queue-overlay" style="display: none;"></div>
 
   <script src="js/audio.js"></script>
+  <script src="js/network.js"></script>
+  <script src="js/queue-panel.js"></script>
   <script src="js/playback-context.js"></script>
   <script src="js/spotify.js"></script>
   <script src="js/router.js"></script>

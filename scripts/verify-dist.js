@@ -55,12 +55,13 @@ function sha256(filePath) {
   const entries = asar.listPackage(asarPath).map(entry => entry.replaceAll('\\', '/'));
   for (const forbidden of [
     '/.chrome_profile/', '/.github/', '/scripts/', '/patches/', '/task.md',
-    '/walkthrough.md', '/styles.css', '/dist/', '/package-lock.json'
+    '/walkthrough.md', '/styles.css', '/dist/', '/package-lock.json', '/.cache/', '/.preview_profile/'
   ]) {
     assert(!entries.some(entry => entry.includes(forbidden)), `Forbidden release content found: ${forbidden}`);
   }
   for (const required of [
     '/main.js', '/preload.js', '/mini-player.html', '/mini-player.css',
+    '/player-extras.css', '/js/playback-queue.js', '/js/queue-panel.js', '/js/network.js',
     '/js/mini-player.js', '/js/playback-context.js', '/js/lyrics.js', '/librespot-checksums.json', '/README.md',
     '/PRIVACY.md', '/THIRD_PARTY_NOTICES.md'
   ]) {
