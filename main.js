@@ -1878,10 +1878,16 @@ function spawnLibrespot() {
     }
     if (wasActive && child.cozyAuthorizationCanceled) return;
     if (wasActive && premiumAccountErrorDetected && accessToken) {
-      detectedSpotifyProduct = 'free';
+      const accountWasConfirmedFree = detectedSpotifyProduct === 'free';
       clearPlaybackCredentials();
-      setPlaybackCapability('external', 'Standalone playback was rejected because Spotify Premium is required.');
-      sendToRenderer('spotify-playback-error', 'Spotify Premium was not available for standalone playback. Cozy-Fi switched to Spotify App mode.');
+      if (accountWasConfirmedFree && playbackPreference === 'auto') {
+        detectedSpotifyProduct = 'free';
+        setPlaybackCapability('external', 'Standalone playback was rejected because Spotify Premium is required.');
+        sendToRenderer('spotify-playback-error', 'Spotify Premium was not available for standalone playback. Cozy-Fi switched to Spotify App mode.');
+      } else {
+        setPlaybackCapability('unavailable', 'Spotify rejected the Cozy-Fi Player. Reconnect the same Premium account used for Cozy-Fi Player authorization.');
+        sendToRenderer('spotify-playback-error', 'Spotify rejected the Cozy-Fi Player. Reconnect the same Premium account used for Cozy-Fi Player authorization.');
+      }
       return;
     }
     if (wasActive && invalidCredentialsDetected && usedCachedCredentials && accessToken) {
