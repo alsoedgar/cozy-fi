@@ -158,7 +158,7 @@ jobs:
             exit 1
           fi
           sha256sum "${assets[@]}" > release-assets/SHA256SUMS.txt
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --title "Cozy-Fi $GITHUB_REF_NAME" --generate-notes
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Cozy-Fi $GITHUB_REF_NAME" --generate-notes
           fi
-          gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" release-assets/* --clobber
