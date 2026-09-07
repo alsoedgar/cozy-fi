@@ -193,7 +193,11 @@ async function readExternalPlayback(force = false) {
       setPlaybackCapability('external', 'Spotify has marked the active device as restricted.');
     }
     return state || null;
-  });
+  })
+    .catch(error => {
+      if (isPlaybackRestrictionError(error)) markExternalPlaybackRestriction(error);
+      throw error;
+    });
   externalPlayerStateRead = request;
   try { return await request; }
   finally { if (externalPlayerStateRead === request) externalPlayerStateRead = null; }
