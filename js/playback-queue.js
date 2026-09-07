@@ -22,10 +22,11 @@ function normalizeTrack(value) {
 }
 
 class PlaybackQueue {
-  constructor({ request, device, publish = () => {}, random = Math.random }) {
+  constructor({ request, device, publish = () => {}, warn = () => {}, random = Math.random }) {
     this.request = request;
     this.device = device;
     this.publish = publish;
+    this.warn = warn;
     this.random = random;
     this.chain = Promise.resolve();
     this.reset();
@@ -123,15 +124,32 @@ class PlaybackQueue {
     return true;
   }
 
-  async write(entries, index, positionMs = 0, paused = false, nativeBody = null) {
+  async write(entries, index, positionMs = 0, paused = false, nativeBody = null, resetRepeat = false) {
     const first = Math.max(0, index - 10);
     const window = entries.slice(first, first + 100);
     // Native shuffle would reorder our explicit list a second time.
-    await this.request(`${this.endpoint('shuffle')}&state=false`, 'PUT');
+    // A newly registered Connect player can reject these preferences until it
+    // has a playback context. That is not a rejection of the Play command.
+    const preferences = [this.endpoint('shuffle') + '&state=false'];
+    if (resetRepeat) preferences.unshift(this.endpoint('repeat') + '&state=off');
+    const deferred = [];
+    for (const endpoint of preferences) {
+      try { await this.request(endpoint, 'PUT'); }
+      catch (error) {
+        if (![403, 404].includes(Number(error.status))) throw error;
+        deferred.push(endpoint);
+      }
+    }
     await this.request(this.endpoint('play'), 'PUT', nativeBody || {
       uris: window.map(entry => entry.uri), offset: { position: index - first },
       position_ms: Math.max(0, Math.floor(positionMs))
     });
+    // Play succeeded: never discard its queue or stop audio because a secondary
+    // preference is unsupported. Retry deferred settings now that it is active.
+    for (const endpoint of deferred) {
+      try { await this.request(endpoint, 'PUT'); }
+      catch (error) { this.warn(`Playback started, but Spotify could not update ${endpoint.includes('/shuffle?') ? 'shuffle' : 'repeat'}.`, error); }
+    }
     if (paused) await this.request(this.endpoint('pause'), 'PUT');
     return nativeBody ? entries.map(entry => entry.queueId) : window.map(entry => entry.queueId);
   }
@@ -149,8 +167,7 @@ class PlaybackQueue {
         context_uri: context.uri,
         offset: offset?.position !== undefined ? { position: offset.position } : { uri: selected.uri }
       } : null;
-      await this.request(`${this.endpoint('repeat')}&state=off`, 'PUT');
-      const windowIds = await this.write(entries, index, 0, false, nativeBody);
+      const windowIds = await this.write(entries, index, 0, false, nativeBody, true);
       if (generation !== this.generation) throw new Error('The playback session changed.');
       Object.assign(this, { entries, index, context, windowIds, commandAt: Date.now(), lastState: null });
       this.acknowledgedState = { item: entries[index], is_playing: true, progress_ms: 0, device: { id: this.device() } };

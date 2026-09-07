@@ -167,6 +167,7 @@ The generated folders are unsigned, unpacked personal builds rather than install
 
 ## Current Spotify constraints
 
+- Version 1.6.2 fixes first-song playback on a newly started Cozy-Fi Player: rejected shuffle/repeat settings are retried after Play instead of aborting playback. A track restriction no longer shuts down the standalone player. If you installed 1.6.1, update using the latest release installer.
 - Playback and the Spotify Web API require Premium under Spotify's current platform rules.
 - Spotify's [February 2026 Development Mode migration](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide) removed the profile `product` field. Auto mode therefore detects successful standalone registration rather than guessing the subscription from missing profile data.
 - Development Mode apps are limited to authorized users and are not a general consumer sign-in channel.

@@ -3,6 +3,61 @@ const test = require('node:test');
 const { PlaybackQueue, normalizeTrack } = require('../js/playback-queue');
 
 const song = (id, position) => ({ id, uri: `spotify:track:${id}`, name: id, artists: [{ id: 'artist', name: 'Artist' }], duration_ms: 180000, cozy_context_position: position });
+
+for (const status of [403, 404]) {
+  test(`cold standalone player starts when preferences return ${status} before Play`, async () => {
+    let active = false;
+    const calls = [];
+    const queue = new PlaybackQueue({
+      device: () => 'cozy-only',
+      request: async (endpoint, method, body) => {
+        calls.push({ endpoint, body });
+        if (/\/(shuffle|repeat)\?/.test(endpoint) && !active) {
+          throw Object.assign(new Error('Player command failed: Restriction violated'), { status });
+        }
+        if (endpoint.includes('/play?')) active = true;
+      }
+    });
+    await queue.start([song('a'), song('b')]);
+    assert.equal(active, true);
+    assert.equal(queue.snapshot().currentlyPlaying.id, 'a');
+    assert.deepEqual(queue.snapshot().queue.map(track => track.id), ['b']);
+    const playIndex = calls.findIndex(call => call.endpoint.includes('/play?'));
+    assert.equal(calls.filter(call => call.endpoint.includes('/play?')).length, 1);
+    assert.ok(calls.slice(playIndex + 1).some(call => call.endpoint.includes('/shuffle?')));
+    assert.ok(calls.slice(playIndex + 1).some(call => call.endpoint.includes('/repeat?')));
+  });
+}
+
+test('unsupported preferences do not discard successful playback or its queue', async () => {
+  const warnings = [];
+  const queue = new PlaybackQueue({
+    device: () => 'cozy-only', warn: message => warnings.push(message),
+    request: async endpoint => {
+      if (/\/(shuffle|repeat)\?/.test(endpoint)) {
+        throw Object.assign(new Error('Restriction violated'), { status: 403 });
+      }
+    }
+  });
+  await queue.start([song('a'), song('b')]);
+  assert.equal(queue.snapshot().currentlyPlaying.id, 'a');
+  assert.equal(queue.snapshot().queue[0].id, 'b');
+  assert.equal(warnings.length, 2);
+});
+
+test('a rejected Play command remains an error and leaves the previous queue intact', async () => {
+  const queue = new PlaybackQueue({
+    device: () => 'cozy-only',
+    request: async endpoint => {
+      if (endpoint.includes('/play?')) throw Object.assign(new Error('Play rejected'), { status: 403 });
+    }
+  });
+  queue.adopt(song('old'), [song('next')]);
+  const before = queue.snapshot();
+  await assert.rejects(queue.start([song('a')]), /Play rejected/);
+  assert.deepEqual(queue.snapshot(), before);
+});
+
 function fixture() {
   const calls = [];
   const events = [];

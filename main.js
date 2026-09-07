@@ -129,6 +129,10 @@ let queueMaintenanceInterval = null;
 const playbackQueue = new PlaybackQueue({
   request: (...args) => fetchWebApi(...args),
   device: () => requirePlaybackDevice(),
+  warn: (message, error) => {
+    console.warn('[Playback]', message, error.message);
+    sendToRenderer('spotify-playback-error', message);
+  },
   publish: snapshot => {
     playerStateReadAt = 0;
     sendToRenderer('spotify-queue-changed', snapshot);
@@ -707,13 +711,10 @@ function fallbackToSpotifyApp(rawUri, allowedTypes, error) {
   // handoff is reserved for an explicitly selected external mode or an
   // account Spotify has positively identified as Free.
   if (playbackPreference === 'standalone' || detectedSpotifyProduct !== 'free') {
-    const message = 'Spotify restricted the Cozy-Fi Player. Reconnect the same Premium account used for Cozy-Fi Player authorization, then try again.';
+    const message = 'Spotify rejected this song request. Try another song. If it keeps happening, reconnect the same Premium account for Spotify and Cozy-Fi Player.';
     console.warn('[Playback] Keeping Premium playback inside Cozy-Fi after a restricted-player response:', error?.message || error);
-    playbackQueue.reset();
-    deviceId = null;
-    stopDeviceSync();
-    killLibrespot();
-    setPlaybackCapability('unavailable', message);
+    // An action/track restriction does not invalidate the registered player or
+    // prove the account is Free. Keep the session available for another song.
     throw new Error(message);
   }
   const message = 'Spotify restricted Cozy-Fi playback for this account or device. Opening Spotify instead.';
@@ -1113,11 +1114,15 @@ async function fetchWebApi(endpoint, method = 'GET', body = null) {
     if (!response.ok) {
       const detail = await parseSpotifyResponse(response, method);
       const message = typeof detail === 'string' ? detail : detail?.error?.message || JSON.stringify(detail);
-      const error = new Error(`Spotify API ${response.status}: ${message}`);
+      const requestUrl = new URL(url);
+      const error = new Error(`Spotify API ${response.status} (${method} ${requestUrl.pathname}): ${message}`);
       error.status = response.status;
+      error.reason = detail?.error?.reason;
       if (
-        (response.status === 403 || response.status === 404) &&
-        new URL(url).searchParams.has('device_id')
+        response.status === 404 &&
+        !/\/(shuffle|repeat)$/.test(requestUrl.pathname) &&
+        (error.reason === 'NO_ACTIVE_DEVICE' || /device.*not found|no active device/i.test(message)) &&
+        requestUrl.searchParams.get('device_id') === deviceId
       ) {
         invalidatePlaybackDevice();
       }
