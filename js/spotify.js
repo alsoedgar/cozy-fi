@@ -9,6 +9,7 @@ class SpotifyClient {
       preference: 'auto',
       mode: 'disconnected',
       canPlayLocally: false,
+      canControlExternally: false,
       opensSpotifyExternally: false,
       tier: null,
       detection: 'unknown',
@@ -91,6 +92,13 @@ class SpotifyClient {
 
   get isStandalonePlayback() {
     return this.playbackCapability.mode === 'standalone';
+  }
+
+  get canControlPlayback() {
+    return Boolean(
+      this.playbackCapability.canPlayLocally ||
+      this.playbackCapability.canControlExternally
+    );
   }
 
   onPlaybackCapabilityChange(callback) {

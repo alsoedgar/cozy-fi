@@ -199,6 +199,7 @@ class SearchManager {
     this.recommendationsGrid.removeAttribute('aria-busy');
 
     (Array.isArray(tracks) ? tracks : []).filter(Boolean).slice(0, 4).forEach(track => {
+      const canControl = this.spotify.canControlPlayback ?? !this.spotify.isExternalPlayback;
       const card = document.createElement('div');
       card.className = 'playlist-grid-card';
       const coverUrl = this.safeImageUrl(track.album?.images?.[0]?.url);
@@ -215,8 +216,8 @@ class SearchManager {
         </div>
         <div class="playlist-grid-title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:0.85rem; font-weight:700;">${trackName}</div>
         <div class="playlist-grid-desc" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:0.75rem; color:var(--text-secondary);">${artistName}</div>
-        <button class="play-card-btn" data-play-action>${this.spotify.isExternalPlayback ? 'OPEN' : 'PLAY'}</button>
-        ${this.spotify.isExternalPlayback ? '' : '<button class="add-queue-row-btn">+ QUEUE</button>'}
+        <button class="play-card-btn" data-play-action>${canControl ? 'PLAY' : 'OPEN'}</button>
+        ${canControl ? '<button class="add-queue-row-btn">+ QUEUE</button>' : ''}
         ${track.external_urls?.spotify ? '<button class="open-spotify-card-btn">OPEN IN SPOTIFY</button>' : ''}
       `;
 
@@ -226,7 +227,7 @@ class SearchManager {
       });
       const playButton = card.querySelector('.play-card-btn');
       this.bindQueueButton(card, track);
-      playButton.setAttribute('aria-label', `${this.spotify.isExternalPlayback ? 'Open' : 'Play'} ${track.name || 'track'}`);
+      playButton.setAttribute('aria-label', `${canControl ? 'Play' : 'Open'} ${track.name || 'track'}`);
       card.querySelector('.open-spotify-card-btn')?.setAttribute('aria-label', `Open ${track.name || 'track'} in Spotify`);
 
       const playCard = async () => {
@@ -336,6 +337,7 @@ class SearchManager {
 
   appendTrackRows(tracks) {
     (Array.isArray(tracks) ? tracks : []).filter(Boolean).forEach(track => {
+      const canControl = this.spotify.canControlPlayback ?? !this.spotify.isExternalPlayback;
       const coverUrl = this.safeImageUrl(track.album?.images?.[0]?.url);
       const trackName = this.escapeHtml(track.name || 'Unknown Track');
       const artistNames = this.escapeHtml(Array.isArray(track.artists) ? track.artists.map(a => a.name).join(', ') : 'Unknown Artist');
@@ -363,8 +365,8 @@ class SearchManager {
           </div>
         </div>
         <div class="track-row-actions">
-          <button class="play-row-btn" data-play-action>${this.spotify.isExternalPlayback ? 'OPEN' : 'PLAY'}</button>
-          ${this.spotify.isExternalPlayback ? '' : '<button class="add-queue-row-btn">+ QUEUE</button>'}
+          <button class="play-row-btn" data-play-action>${canControl ? 'PLAY' : 'OPEN'}</button>
+          ${canControl ? '<button class="add-queue-row-btn">+ QUEUE</button>' : ''}
           ${track.external_urls?.spotify ? '<button class="open-spotify-row-btn">SPOTIFY</button>' : ''}
           <div class="liked-track-duration">${track.duration_ms ? this.formatMs(track.duration_ms) : '0:00'}</div>
         </div>
@@ -376,7 +378,7 @@ class SearchManager {
         this.spotify.openExternal(track.external_urls.spotify).catch(error => console.error(error));
       });
       const playButton = row.querySelector('.play-row-btn');
-      playButton.setAttribute('aria-label', `${this.spotify.isExternalPlayback ? 'Open' : 'Play'} ${track.name || 'track'}`);
+      playButton.setAttribute('aria-label', `${canControl ? 'Play' : 'Open'} ${track.name || 'track'}`);
       row.querySelector('.open-spotify-row-btn')?.setAttribute('aria-label', `Open ${track.name || 'track'} in Spotify`);
 
       const playRow = async () => {

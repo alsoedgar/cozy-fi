@@ -47,6 +47,19 @@ document.addEventListener('DOMContentLoaded', () => {
     pollInFlight: false,
     scrubbing: false
   };
+  const capabilityCanControl = () => {
+    const capability = state.capability || {};
+    if (typeof capability.canPlayLocally === 'boolean' || typeof capability.canControlExternally === 'boolean') {
+      return Boolean(capability.canPlayLocally || capability.canControlExternally);
+    }
+    // Older capability events (and the disconnected smoke fixture) only
+    // carried the mode. Standalone mode is still a controllable local player.
+    return capability.mode === 'standalone';
+  };
+  const capabilityCanControlExternal = () => (
+    state.capability?.mode === 'external' &&
+    Boolean(state.capability?.canControlExternally)
+  );
   const queuePanel = new window.CozyQueuePanel({
     api: api.spotify,
     panel: document.getElementById('mini-queue-popover'),
@@ -54,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     shuffle: document.getElementById('mini-shuffle'),
     similar: document.getElementById('mini-similar'),
     getTrack: () => state.track,
-    canControl: () => state.authenticated && state.capability.mode === 'standalone',
+    canControl: () => state.authenticated && capabilityCanControl(),
     onPlayback: () => { setTimeout(refreshPlayback, 350); },
     onError: setMessage
   });
@@ -96,10 +109,10 @@ document.addEventListener('DOMContentLoaded', () => {
       importButton: elements.lyricsImport
     }, {
       getPosition: () => state.positionMs,
-      canSync: () => state.capability?.mode === 'standalone',
+      canSync: () => capabilityCanControl(),
       isPlayerViewVisible: () => !document.hidden,
       canSeek: () => (
-        state.capability?.mode === 'standalone' && state.durationMs > 0 && !state.controlBusy
+        capabilityCanControl() && state.durationMs > 0 && !state.controlBusy
       ),
       onSeek: positionMs => seekToLyric(positionMs),
       onPanelChange: panel => {
@@ -488,8 +501,11 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.progress.style.setProperty('--progress-percent', duration > 0 ? `${(position / duration) * 100}%` : '0%');
     elements.currentTime.textContent = formatTime(displayPosition);
     elements.totalTime.textContent = formatTime(duration);
-    elements.progress.disabled = state.capability.mode !== 'standalone' || duration <= 0 || state.controlBusy;
-    lyricsController?.updatePosition(displayPosition, state.capability.mode === 'standalone');
+    const local = state.authenticated && state.capability.mode === 'standalone';
+    const externalControl = state.authenticated && capabilityCanControlExternal();
+    const controllable = local || externalControl;
+    elements.progress.disabled = !controllable || duration <= 0 || state.controlBusy;
+    lyricsController?.updatePosition(displayPosition, capabilityCanControl());
   }
 
   function renderCover() {
@@ -541,7 +557,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const mode = state.capability?.mode || 'disconnected';
     const capabilityLabels = {
       standalone: state.capability?.tier === 'premium' ? 'PREMIUM · LOCAL' : 'LOCAL PLAYER',
-      external: state.capability?.tier === 'free' ? 'FREE · SPOTIFY' : 'SPOTIFY APP',
+      external: state.capability?.tier === 'free'
+        ? 'FREE · SPOTIFY'
+        : state.capability?.canControlExternally ? 'PREMIUM · SPOTIFY' : 'SPOTIFY APP',
       authorizing: 'AUTHORIZE',
       starting: 'STARTING',
       unavailable: 'UNAVAILABLE',
@@ -555,7 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       elements.title.textContent = 'Awaiting Track';
       elements.artist.textContent = state.authenticated
-        ? (mode === 'external' ? 'Choose a song in Cozy-Fi to open it in Spotify.' : 'Choose a song in the full Cozy-Fi app.')
+        ? (mode === 'external'
+          ? (state.capability.canControlExternally
+            ? 'Choose a song in Cozy-Fi to control Premium playback.'
+            : 'Choose a song in Cozy-Fi to open it in Spotify.')
+          : 'Choose a song in the full Cozy-Fi app.')
         : 'Connect Spotify in the full app to begin.';
     }
     renderCover();
@@ -565,18 +587,27 @@ document.addEventListener('DOMContentLoaded', () => {
       durationMs: state.durationMs
     } : null);
 
-    const local = state.authenticated && mode === 'standalone' && window.CozyNetwork?.online !== false;
+    const online = window.CozyNetwork?.online !== false;
+    const local = state.authenticated && mode === 'standalone' && online;
     const external = state.authenticated && mode === 'external';
-    elements.previous.disabled = state.controlBusy || !local;
-    elements.next.disabled = state.controlBusy || !local;
-    elements.play.disabled = state.controlBusy || (!local && !(external && (state.track?.spotifyUri || state.track?.spotifyUrl)));
-    elements.play.textContent = external ? 'OPEN' : (state.isPlaying ? 'PAUSE' : 'PLAY');
-    elements.play.setAttribute('aria-label', external ? 'Open in Spotify' : (state.isPlaying ? 'Pause' : 'Play'));
+    const externalControl = external && capabilityCanControlExternal() && online;
+    const controllable = local || externalControl;
+    elements.previous.disabled = state.controlBusy || !controllable;
+    elements.next.disabled = state.controlBusy || !controllable;
+    elements.play.disabled = state.controlBusy || (!controllable && !(external && (state.track?.spotifyUri || state.track?.spotifyUrl)));
+    elements.play.textContent = external && !externalControl
+      ? 'OPEN'
+      : (state.isPlaying ? 'PAUSE' : 'PLAY');
+    elements.play.setAttribute('aria-label', external && !externalControl
+      ? 'Open in Spotify'
+      : (state.isPlaying ? 'Pause' : 'Play'));
     elements.pin.setAttribute('aria-pressed', String(state.pinned));
     elements.pin.title = state.pinned ? 'Unpin from on top' : 'Keep on top';
 
     if (mode === 'standalone') setMessage(state.isPlaying ? 'PLAYING INSIDE COZY-FI' : 'READY INSIDE COZY-FI');
-    else if (mode === 'external') setMessage('OPENS IN SPOTIFY');
+    else if (mode === 'external') {
+      setMessage(state.capability.canControlExternally ? 'CONTROLLED FROM COZY-FI' : 'OPENS IN SPOTIFY');
+    }
     else if (mode === 'authorizing') setMessage('FINISH ONE-TIME AUTHORIZATION');
     else if (mode === 'starting') setMessage('WARMING UP LOCAL PLAYER');
     else if (mode === 'unavailable') setMessage('OPEN FULL APP FOR DETAILS');
@@ -597,7 +628,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (
       state.pollInFlight ||
       !state.authenticated ||
-      state.capability.mode !== 'standalone' ||
+      (state.capability.mode !== 'standalone' && state.capability.mode !== 'external') ||
       window.CozyNetwork?.online === false ||
       document.hidden
     ) return;
@@ -642,8 +673,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function seekToLyric(rawPositionMs) {
-    if (state.capability.mode !== 'standalone' || state.durationMs <= 0) {
-      setMessage('LINE SEEKING NEEDS STANDALONE PLAYBACK');
+    if (!capabilityCanControl() || state.durationMs <= 0) {
+      setMessage('LINE SEEKING NEEDS PREMIUM PLAYBACK');
       return false;
     }
     const positionMs = Math.min(
@@ -660,7 +691,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   elements.play.addEventListener('click', () => {
     if (state.capability.mode === 'external') {
-      if (state.track?.spotifyType !== 'episode' && state.track?.spotifyUri) {
+      if (capabilityCanControlExternal()) {
+        const wasPlaying = state.isPlaying;
+        runControl(
+          () => wasPlaying ? api.spotify.pause() : api.spotify.resume(),
+          !wasPlaying
+        );
+      } else if (state.track?.spotifyType !== 'episode' && state.track?.spotifyUri) {
         runControl(() => api.spotify.playTrack(state.track.spotifyUri));
       } else if (state.track?.spotifyUrl) {
         runControl(() => api.spotify.openExternal(state.track.spotifyUrl));
@@ -682,7 +719,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const position = Math.min(duration, Math.max(0, Number(elements.progress.value) || 0));
     elements.progress.style.setProperty('--progress-percent', duration > 0 ? `${(position / duration) * 100}%` : '0%');
     elements.currentTime.textContent = formatTime(position);
-    lyricsController?.updatePosition(position, state.capability.mode === 'standalone');
+    lyricsController?.updatePosition(
+      position,
+      capabilityCanControl()
+    );
   });
   elements.progress.addEventListener('change', () => {
     const position = Math.max(0, Number(elements.progress.value) || 0);
@@ -777,7 +817,7 @@ document.addEventListener('DOMContentLoaded', () => {
   api.events.onPlaybackCapability(capability => {
     state.capability = capability || { mode: 'disconnected' };
     render();
-    if (state.capability.mode === 'standalone') refreshPlayback();
+    if (state.capability.mode === 'standalone' || state.capability.mode === 'external') refreshPlayback();
   });
   api.events.onConnectionSuccess(() => {
     state.authenticated = true;
@@ -811,7 +851,9 @@ document.addEventListener('DOMContentLoaded', () => {
       state.authenticated = Boolean(authenticated);
       state.capability = capability || { mode: 'disconnected' };
       state.pinned = windowState?.pinned !== false;
-      if (state.authenticated && state.capability.mode === 'standalone') await refreshPlayback();
+      if (state.authenticated && (state.capability.mode === 'standalone' || state.capability.mode === 'external')) {
+        await refreshPlayback();
+      }
     } catch (error) {
       setMessage(error?.message || 'COULD NOT START SIDE PLAYER');
     } finally {

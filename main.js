@@ -21,6 +21,33 @@ const {
   createImportedLyricsRecord
 } = require('./js/lyrics');
 
+function handleSquirrelEvent() {
+  if (process.platform !== 'win32' || process.argv.length < 2) return false;
+  const event = process.argv[1];
+  if (!/^--squirrel-(install|updated|uninstall|obsolete)$/.test(event)) return false;
+  const updateExecutable = path.resolve(path.dirname(process.execPath), '..', 'Update.exe');
+  const applicationExecutable = path.basename(process.execPath);
+  const runUpdate = args => {
+    try {
+      spawn(updateExecutable, args, { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
+    } catch (error) {
+      console.warn('[Installer] Could not update shortcuts:', error.message);
+    }
+  };
+  if (event === '--squirrel-install' || event === '--squirrel-updated') {
+    runUpdate(['--createShortcut', applicationExecutable]);
+    setTimeout(() => app.quit(), 1000).unref();
+  } else if (event === '--squirrel-uninstall') {
+    runUpdate(['--removeShortcut', applicationExecutable]);
+    setTimeout(() => app.quit(), 1000).unref();
+  } else {
+    app.quit();
+  }
+  return true;
+}
+
+if (handleSquirrelEvent()) return;
+
 const SPOTIFY_API_BASE = 'https://api.spotify.com/';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
@@ -71,10 +98,13 @@ let refreshToken = '';
 let accessTokenExpiresAt = 0;
 let clientId = '';
 let deviceId = null;
+let externalDeviceId = null;
 let playbackPreference = 'auto';
 let detectedSpotifyProduct = null;
 let playbackCapabilityState = 'disconnected';
 let playbackCapabilityReason = '';
+let externalPlaybackControlAvailable = null;
+let externalBlockedDeviceId = null;
 let sidePlayerPinned = true;
 let sidePlayerBounds = null;
 let sidePlayerBoundsSaveTimer = null;
@@ -92,6 +122,9 @@ let playbackIpcChain = Promise.resolve();
 let playerStateRead = null;
 let playerStateCache = null;
 let playerStateReadAt = 0;
+let externalPlayerStateRead = null;
+let externalPlayerStateCache = null;
+let externalPlayerStateReadAt = 0;
 let queueMaintenanceInterval = null;
 const playbackQueue = new PlaybackQueue({
   request: (...args) => fetchWebApi(...args),
@@ -103,7 +136,13 @@ const playbackQueue = new PlaybackQueue({
 });
 
 async function readCurrentPlayback() {
-  if (!deviceId || usesExternalPlayback()) return null;
+  if (usesExternalPlayback()) {
+    if (playbackQueue.entries.length > 0 && externalDeviceId) {
+      return playbackQueue.observe();
+    }
+    return readExternalPlayback();
+  }
+  if (!deviceId) return null;
   if (Date.now() - playerStateReadAt < 2500) return playerStateCache;
   if (playerStateRead) return playerStateRead;
   const generation = authSessionGeneration;
@@ -125,6 +164,83 @@ function networkStatus() {
 function publishNetwork(reachable) {
   spotifyReachable = reachable;
   sendToRenderer('network-status', networkStatus());
+}
+
+async function readExternalPlayback(force = false) {
+  if (!accessToken || !usesExternalPlayback()) return null;
+  if (!force && Date.now() - externalPlayerStateReadAt < 1500) return externalPlayerStateCache;
+  if (externalPlayerStateRead) return externalPlayerStateRead;
+  const generation = authSessionGeneration;
+  const request = fetchWebApi('v1/me/player?additional_types=episode').then(state => {
+    if (generation !== authSessionGeneration) return null;
+    const activeDevice = state?.device;
+    if (activeDevice?.id && !activeDevice.is_restricted) {
+      externalDeviceId = activeDevice.id;
+      if (externalBlockedDeviceId !== activeDevice.id) {
+        externalBlockedDeviceId = null;
+        externalPlaybackControlAvailable = true;
+      }
+    } else {
+      externalDeviceId = null;
+      if (activeDevice?.is_restricted) {
+        externalBlockedDeviceId = activeDevice.id || null;
+        externalPlaybackControlAvailable = false;
+      }
+    }
+    externalPlayerStateCache = state || null;
+    externalPlayerStateReadAt = Date.now();
+    if (externalPlaybackControlAvailable === false) {
+      setPlaybackCapability('external', 'Spotify has marked the active device as restricted.');
+    }
+    return state || null;
+  });
+  externalPlayerStateRead = request;
+  try { return await request; }
+  finally { if (externalPlayerStateRead === request) externalPlayerStateRead = null; }
+}
+
+async function ensureExternalPlaybackDevice() {
+  const state = await readExternalPlayback(true);
+  if (state?.device?.is_restricted) {
+    const error = new Error('Spotify marked the active device as restricted.');
+    error.status = 403;
+    throw error;
+  }
+  if (!state?.device?.id) throw new Error('Open Spotify and select an active device before controlling playback from Cozy-Fi.');
+  externalDeviceId = state.device.id;
+  return externalDeviceId;
+}
+
+async function adoptExternalPlaybackQueue() {
+  if (!usesExternalPlayback() || playbackQueue.entries.length > 0) return false;
+  const state = await readExternalPlayback(true);
+  if (!state?.item || state.item.type !== 'track') return false;
+  const data = await fetchWebApi('v1/me/player/queue');
+  return playbackQueue.adopt(state.item, data?.queue || []);
+}
+
+async function externalPlaybackCommand(action, method = 'PUT', body = null, query = '') {
+  const activeDevice = await ensureExternalPlaybackDevice();
+  const endpoint = `v1/me/player/${action}?device_id=${encodeURIComponent(activeDevice)}${query}`;
+  return fetchWebApi(endpoint, method, body);
+}
+
+function markExternalPlaybackRestriction(error) {
+  if (!isPlaybackRestrictionError(error)) return false;
+  externalBlockedDeviceId = externalDeviceId || externalPlayerStateCache?.device?.id || null;
+  externalPlaybackControlAvailable = false;
+  externalDeviceId = null;
+  externalPlayerStateCache = null;
+  externalPlayerStateReadAt = 0;
+  setPlaybackCapability('external', 'Spotify did not allow Cozy-Fi to control this playback device. Premium playback and an unrestricted device are required.');
+  return true;
+}
+
+function externalControlError(error, action) {
+  if (usesExternalPlayback() && markExternalPlaybackRestriction(error)) {
+    return new Error(`Spotify did not allow ${action} from Cozy-Fi. Premium playback and an unrestricted active device are required.`);
+  }
+  return error;
 }
 
 // Serialize commands from both renderer processes, including context lookups.
@@ -534,6 +650,7 @@ function getPlaybackCapability() {
     preference: playbackPreference,
     mode,
     canPlayLocally: mode === 'standalone',
+    canControlExternally: mode === 'external' && Boolean(accessToken) && detectedSpotifyProduct !== 'free' && externalPlaybackControlAvailable !== false,
     opensSpotifyExternally: mode === 'external',
     tier,
     detection,
@@ -565,7 +682,8 @@ function normalizeSpotifyExternalUrl(value) {
 
 function requirePlaybackDevice() {
   if (usesExternalPlayback()) {
-    throw new Error('Playback is set to Spotify App mode. Use Spotify for transport controls.');
+    if (externalDeviceId) return externalDeviceId;
+    throw new Error('Open Spotify and select an active device before controlling playback from Cozy-Fi.');
   }
   if (!deviceId) {
     if (!hasPlaybackCredentials()) {
@@ -581,6 +699,19 @@ function isPlaybackRestrictionError(error) {
 }
 
 function fallbackToSpotifyApp(rawUri, allowedTypes, error) {
+  // Keep Premium (and unclassified) accounts inside Cozy-Fi. A Spotify App
+  // handoff is reserved for an explicitly selected external mode or an
+  // account Spotify has positively identified as Free.
+  if (playbackPreference === 'standalone' || detectedSpotifyProduct !== 'free') {
+    const message = 'Spotify restricted the Cozy-Fi Player. Reconnect the same Premium account used for Cozy-Fi Player authorization, then try again.';
+    console.warn('[Playback] Keeping Premium playback inside Cozy-Fi after a restricted-player response:', error?.message || error);
+    playbackQueue.reset();
+    deviceId = null;
+    stopDeviceSync();
+    killLibrespot();
+    setPlaybackCapability('unavailable', message);
+    throw new Error(message);
+  }
   const message = 'Spotify restricted Cozy-Fi playback for this account or device. Opening Spotify instead.';
   console.warn('[Playback] Switching to Spotify App mode after a restricted-player response:', error?.message || error);
   playbackQueue.reset();
@@ -1572,18 +1703,9 @@ async function configurePlaybackForAccount() {
     return false;
   }
 
-  if (playbackPreference === 'external') {
-    deviceId = null;
-    stopDeviceSync();
-    killLibrespot();
-    setPlaybackCapability('external', 'Spotify App mode was selected in Settings.');
-    return true;
-  }
-
-  // Spotify removed `product` from GET /me for Development Mode in 2026.
-  // Older/Extended Quota responses may still include it, so use it when
-  // present and otherwise verify Premium capability by registering the local
-  // Connect device.
+  // Spotify's Development Mode may omit `product`, but older/extended
+  // responses still identify Free accounts. Read it before choosing either
+  // playback mode so Free users remain link-only in Spotify App mode too.
   try {
     const profile = await fetchWebApi('v1/me');
     const product = typeof profile?.product === 'string' ? profile.product.toLowerCase() : '';
@@ -1591,6 +1713,24 @@ async function configurePlaybackForAccount() {
   } catch (error) {
     detectedSpotifyProduct = null;
     console.warn('[Playback] Account tier was not available; continuing with capability detection:', error.message);
+  }
+
+  if (playbackPreference === 'external') {
+    deviceId = null;
+    externalDeviceId = null;
+    externalPlaybackControlAvailable = null;
+    externalBlockedDeviceId = null;
+    externalPlayerStateCache = null;
+    externalPlayerStateReadAt = 0;
+    stopDeviceSync();
+    killLibrespot();
+    setPlaybackCapability(
+      'external',
+      detectedSpotifyProduct === 'free'
+        ? 'Spotify reported a Free account; in-app streaming requires Premium.'
+        : 'Spotify App mode was selected in Settings.'
+    );
+    return true;
   }
 
   if (detectedSpotifyProduct === 'free') {
@@ -1611,6 +1751,11 @@ function spawnLibrespot() {
     librespotRestartTimer = null;
   }
   deviceId = null;
+  externalDeviceId = null;
+  externalPlaybackControlAvailable = null;
+  externalBlockedDeviceId = null;
+  externalPlayerStateCache = null;
+  externalPlayerStateReadAt = 0;
   if (!accessToken) {
     setPlaybackCapability('disconnected');
     return false;
@@ -1922,6 +2067,12 @@ function logoutSession() {
   refreshToken = '';
   accessTokenExpiresAt = 0;
   deviceId = null;
+  externalDeviceId = null;
+  externalPlaybackControlAvailable = null;
+  externalBlockedDeviceId = null;
+  externalPlayerStateRead = null;
+  externalPlayerStateCache = null;
+  externalPlayerStateReadAt = 0;
   detectedSpotifyProduct = null;
   saveConfig();
   stopDeviceSync();
@@ -2794,14 +2945,21 @@ function registerIpcHandlers() {
   ipcMain.handle('import-local-lyrics', (event, rawTrack) => importLocalLyrics(event, rawTrack));
 
   ipcMain.handle('get-player-state', async () => {
-    if (!deviceId || usesExternalPlayback()) return null;
+    if (!deviceId && !usesExternalPlayback()) return null;
     return readCurrentPlayback();
   });
   ipcMain.handle('get-queue', async () => {
     if (usesExternalPlayback()) {
       if (!accessToken || !net.isOnline()) return { currentlyPlaying: null, queue: [], external: true, managed: false };
       try {
-        const data = await fetchWebApi('v1/me/player/queue');
+        if (playbackQueue.entries.length > 0) return { ...playbackQueue.snapshot(), external: true };
+        const [player, data] = await Promise.all([
+          readExternalPlayback(true),
+          fetchWebApi('v1/me/player/queue')
+        ]);
+        if (player?.item?.type === 'track' && playbackQueue.adopt(player.item, data?.queue || [])) {
+          return { ...playbackQueue.snapshot(), external: true };
+        }
         return {
           currentlyPlaying: data?.currently_playing || null,
           queue: Array.isArray(data?.queue) ? data.queue : [],
@@ -2826,6 +2984,28 @@ function registerIpcHandlers() {
   ipcMain.handle('add-to-queue', (_event, rawTrackUri) => playbackCommand(async () => {
     const uri = normalizeSpotifyUri(rawTrackUri, ['track']);
     const track = await fetchWebApi(`v1/tracks/${uri.split(':')[2]}`);
+    if (usesExternalPlayback()) {
+      try {
+        await ensureExternalPlaybackDevice();
+        await adoptExternalPlaybackQueue();
+        if (playbackQueue.entries.length > 0) return await playbackQueue.edit('add', track);
+        const activeDevice = requirePlaybackDevice();
+        await fetchWebApi(`v1/me/player/queue?uri=${encodeURIComponent(uri)}&device_id=${encodeURIComponent(activeDevice)}`, 'POST');
+        const [player, data] = await Promise.all([
+          readExternalPlayback(true),
+          fetchWebApi('v1/me/player/queue')
+        ]);
+        return {
+          currentlyPlaying: data?.currently_playing || player?.item || null,
+          queue: Array.isArray(data?.queue) ? data.queue : [],
+          external: true,
+          managed: false
+        };
+      } catch (error) {
+        if (markExternalPlaybackRestriction(error)) throw new Error('Spotify did not allow adding to this queue. Premium playback and an unrestricted active device are required.');
+        throw error;
+      }
+    }
     if (playbackQueue.entries.length === 0 && (await playbackQueue.observe())?.item) {
       const player = await playbackQueue.readState();
       const data = await fetchWebApi('v1/me/player/queue');
@@ -2834,13 +3014,29 @@ function registerIpcHandlers() {
     if (playbackQueue.index < 0) return playbackQueue.stage(track);
     return playbackQueue.edit('add', track);
   }));
-  ipcMain.handle('edit-queue', (_event, action, value, revision) => playbackCommand(() => {
+  ipcMain.handle('edit-queue', (_event, action, value, revision) => playbackCommand(async () => {
     if (!['remove', 'move', 'play', 'shuffle'].includes(action)) throw new Error('Invalid queue action.');
-    return playbackQueue.edit(action, value, revision);
+    try {
+      if (usesExternalPlayback()) await ensureExternalPlaybackDevice();
+      return await playbackQueue.edit(action, value, revision);
+    } catch (error) {
+      throw externalControlError(error, 'editing the queue');
+    }
   }));
   ipcMain.handle('play-track', (_event, rawTrackUri) => playbackCommand(async () => {
     const trackUri = normalizeSpotifyUri(rawTrackUri, ['track']);
-    if (usesExternalPlayback()) return openSpotifyUriExternally(trackUri, ['track']);
+    if (usesExternalPlayback()) {
+      try {
+        const track = await fetchWebApi(`v1/tracks/${trackUri.split(':')[2]}`);
+        await ensureExternalPlaybackDevice();
+        await adoptExternalPlaybackQueue();
+        return await playbackQueue.start([track]);
+      } catch (error) {
+        if (markExternalPlaybackRestriction(error)) return openSpotifyUriExternally(trackUri, ['track']);
+        if (/active device|select an active device/i.test(String(error?.message || ''))) return openSpotifyUriExternally(trackUri, ['track']);
+        throw error;
+      }
+    }
     try {
       const track = await fetchWebApi(`v1/tracks/${trackUri.split(':')[2]}`);
       return await playbackQueue.start([track]);
@@ -2855,7 +3051,17 @@ function registerIpcHandlers() {
     const tracks = rawUris.map(normalizeTrack).filter(Boolean);
     const uris = tracks.map(track => track.uri);
     if (!uris.length) throw new Error('No playable tracks were provided.');
-    if (usesExternalPlayback()) return openSpotifyUriExternally(uris[0], ['track']);
+    if (usesExternalPlayback()) {
+      try {
+        await ensureExternalPlaybackDevice();
+        await adoptExternalPlaybackQueue();
+        return await playbackQueue.start(tracks);
+      } catch (error) {
+        if (markExternalPlaybackRestriction(error)) return openSpotifyUriExternally(uris[0], ['track']);
+        if (/active device|select an active device/i.test(String(error?.message || ''))) return openSpotifyUriExternally(uris[0], ['track']);
+        throw error;
+      }
+    }
     try {
       return await playbackQueue.start(tracks);
     } catch (error) {
@@ -2867,9 +3073,24 @@ function registerIpcHandlers() {
     const contextUri = normalizeSpotifyUri(rawContextUri, ['playlist', 'album', 'artist']);
     const offset = normalizeContextOffset(rawOffsetUri);
     if (usesExternalPlayback()) {
-      return offset?.uri
-        ? openSpotifyUriExternally(offset.uri, ['track'])
-        : openSpotifyUriExternally(contextUri, ['playlist', 'album', 'artist']);
+      try {
+        await ensureExternalPlaybackDevice();
+        await adoptExternalPlaybackQueue();
+      } catch (error) {
+        if (markExternalPlaybackRestriction(error)) {
+          return openSpotifyUriExternally(
+            offset?.uri || contextUri,
+            offset?.uri ? ['track'] : ['playlist', 'album', 'artist']
+          );
+        }
+        if (/active device|select an active device/i.test(String(error?.message || ''))) {
+          return openSpotifyUriExternally(
+            offset?.uri || contextUri,
+            offset?.uri ? ['track'] : ['playlist', 'album', 'artist']
+          );
+        }
+        throw error;
+      }
     }
     try {
       const [, type, id] = contextUri.split(':');
@@ -2904,30 +3125,95 @@ function registerIpcHandlers() {
       }
       return await playbackQueue.start(playable, selectedIndex, { uri: contextUri, name: info.name || 'Playlist' }, offset);
     } catch (error) {
+      if (usesExternalPlayback()) {
+        if (markExternalPlaybackRestriction(error)) {
+          return openSpotifyUriExternally(
+            offset?.uri || contextUri,
+            offset?.uri ? ['track'] : ['playlist', 'album', 'artist']
+          );
+        }
+        if (/active device|select an active device/i.test(String(error?.message || ''))) {
+          return openSpotifyUriExternally(
+            offset?.uri || contextUri,
+            offset?.uri ? ['track'] : ['playlist', 'album', 'artist']
+          );
+        }
+      }
       if (!isPlaybackRestrictionError(error)) throw error;
       const fallbackUri = offset?.uri || contextUri;
       const fallbackTypes = offset?.uri ? ['track'] : ['playlist', 'album', 'artist'];
       return fallbackToSpotifyApp(fallbackUri, fallbackTypes, error);
     }
   }));
-  ipcMain.handle('pause-track', () => playbackCommand(() => playbackQueue.transport('pause')));
-  ipcMain.handle('resume-track', () => playbackCommand(() => playbackQueue.index < 0 && playbackQueue.entries.length
-    ? playbackQueue.edit('play', playbackQueue.entries[0].queueId) : playbackQueue.transport('resume')));
-  ipcMain.handle('next-track', () => playbackCommand(() => playbackQueue.entries.length > 0
-    ? playbackQueue.edit('next') : fetchWebApi(`v1/me/player/next?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST')));
-  ipcMain.handle('prev-track', () => playbackCommand(() => playbackQueue.index >= 0
-    ? playbackQueue.edit('previous') : fetchWebApi(`v1/me/player/previous?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST')));
+  ipcMain.handle('pause-track', () => playbackCommand(async () => {
+    try {
+      if (usesExternalPlayback()) await ensureExternalPlaybackDevice();
+      if (playbackQueue.entries.length > 0) return await playbackQueue.transport('pause');
+      if (usesExternalPlayback()) return await externalPlaybackCommand('pause');
+      return await playbackQueue.transport('pause');
+    } catch (error) {
+      throw externalControlError(error, 'pausing');
+    }
+  }));
+  ipcMain.handle('resume-track', () => playbackCommand(async () => {
+    try {
+      if (usesExternalPlayback()) await ensureExternalPlaybackDevice();
+      if (playbackQueue.index < 0 && playbackQueue.entries.length) {
+        return await playbackQueue.edit('play', playbackQueue.entries[0].queueId);
+      }
+      if (usesExternalPlayback()) return await externalPlaybackCommand('play');
+      return await playbackQueue.transport('resume');
+    } catch (error) {
+      throw externalControlError(error, 'resuming');
+    }
+  }));
+  ipcMain.handle('next-track', () => playbackCommand(async () => {
+    try {
+      if (usesExternalPlayback()) await ensureExternalPlaybackDevice();
+      if (playbackQueue.entries.length > 0) return await playbackQueue.edit('next');
+      if (usesExternalPlayback()) return await externalPlaybackCommand('next', 'POST');
+      return await fetchWebApi(`v1/me/player/next?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST');
+    } catch (error) {
+      throw externalControlError(error, 'skipping to the next song');
+    }
+  }));
+  ipcMain.handle('prev-track', () => playbackCommand(async () => {
+    try {
+      if (usesExternalPlayback()) await ensureExternalPlaybackDevice();
+      if (playbackQueue.index >= 0) return await playbackQueue.edit('previous');
+      if (usesExternalPlayback()) return await externalPlaybackCommand('previous', 'POST');
+      return await fetchWebApi(`v1/me/player/previous?device_id=${encodeURIComponent(requirePlaybackDevice())}`, 'POST');
+    } catch (error) {
+      throw externalControlError(error, 'returning to the previous song');
+    }
+  }));
   ipcMain.handle('seek-track', (_event, rawPositionMs) => {
     const positionMs = Math.max(0, Math.floor(Number(rawPositionMs) || 0));
     if (IS_SMOKE_TEST) return { positionMs };
-    return playbackCommand(() => playbackQueue.transport('seek', positionMs));
+    return playbackCommand(async () => {
+      try {
+        if (usesExternalPlayback()) await ensureExternalPlaybackDevice();
+        if (usesExternalPlayback() && playbackQueue.entries.length === 0) {
+          return await externalPlaybackCommand('seek', 'PUT', null, `&position_ms=${encodeURIComponent(positionMs)}`);
+        }
+        return await playbackQueue.transport('seek', positionMs);
+      } catch (error) {
+        throw externalControlError(error, 'seeking');
+      }
+    });
   });
-  ipcMain.handle('set-volume', (_event, rawVolumePercent) => {
+  ipcMain.handle('set-volume', (_event, rawVolumePercent) => playbackCommand(async () => {
     const volumePercent = Math.max(0, Math.min(100, Math.round(Number(rawVolumePercent) || 0)));
-    const params = new URLSearchParams({ volume_percent: String(volumePercent) });
-    params.set('device_id', requirePlaybackDevice());
-    return fetchWebApi(`v1/me/player/volume?${params}`, 'PUT');
-  });
+    try {
+      const params = new URLSearchParams({ volume_percent: String(volumePercent) });
+      params.set('device_id', usesExternalPlayback()
+        ? await ensureExternalPlaybackDevice()
+        : requirePlaybackDevice());
+      return await fetchWebApi(`v1/me/player/volume?${params}`, 'PUT');
+    } catch (error) {
+      throw externalControlError(error, 'changing volume');
+    }
+  }));
   const normalizeLibraryItem = rawItem => {
     const value = typeof rawItem === 'string' ? rawItem.trim() : '';
     return value.startsWith('spotify:')
@@ -2970,7 +3256,11 @@ if (!hasSingleInstanceLock) {
     if (!IS_SMOKE_TEST) {
       // Keep long queues supplied when both renderer windows are minimized.
       queueMaintenanceInterval = setInterval(() => {
-        if (playbackQueue.index >= 0 && deviceId && net.isOnline()) {
+        if (
+          playbackQueue.index >= 0 &&
+          (deviceId || (usesExternalPlayback() && externalDeviceId)) &&
+          net.isOnline()
+        ) {
           void readCurrentPlayback().catch(() => {});
         }
       }, 4000);

@@ -222,7 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     importButton: document.getElementById('lyrics-import-button')
   }, {
     getPosition: () => currentSpotifyPosition,
-    canSync: () => spotify.isStandalonePlayback,
+    canSync: () => spotify.canControlPlayback,
     isPlayerViewVisible: () => document.getElementById('view-player')?.classList.contains('active'),
     importLocalLabel: 'ADD LOCAL',
     replaceLocalLabel: 'REPLACE LOCAL'
@@ -362,14 +362,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const playbackModeSelect = document.getElementById('playback-mode-select');
   const playbackCapabilityBadge = document.getElementById('playback-capability-badge');
   let lastExternalPlaybackState = null;
+  let lastExternalControlState = null;
   spotify.onPlaybackCapabilityChange(capability => {
     updatePlaybackCapabilityUI(capability);
     ui.setPlaybackCapability(capability);
     const external = capability?.mode === 'external';
+    const externalControl = external && Boolean(capability?.canControlExternally);
     document.querySelectorAll('[data-play-action]').forEach(button => {
-      button.textContent = external ? 'OPEN' : 'PLAY';
+      button.textContent = external && !externalControl ? 'OPEN' : 'PLAY';
     });
-    if (lastExternalPlaybackState !== null && lastExternalPlaybackState !== external) {
+    if (
+      lastExternalPlaybackState !== null &&
+      (lastExternalPlaybackState !== external || lastExternalControlState !== externalControl)
+    ) {
       renderer.renderLibraryPlaylists(renderer.activeType).catch(error => console.error(error));
       if (renderer.currentTrackContext) {
         const context = renderer.currentTrackContext;
@@ -378,12 +383,13 @@ document.addEventListener('DOMContentLoaded', () => {
       searchManager.triggerSearch(searchInput.value.trim(), searchManager.searchPage).catch(error => console.error(error));
     }
     lastExternalPlaybackState = external;
+    lastExternalControlState = externalControl;
   });
 
   // 7. Track change synchronization
   audio.onTrackChange(track => {
     // Only update UI from HTML5 if Spotify player is not active
-    if (!track || (spotify.isAuthenticated && spotify.isDeviceReady)) {
+    if (!track || (spotify.isAuthenticated && spotify.canControlPlayback)) {
       return;
     }
     updatePlayerBarUI(track, audio.isPlaying);
@@ -414,9 +420,13 @@ document.addEventListener('DOMContentLoaded', () => {
       } : null;
       api.syncSnapshot({
         track,
-        isPlaying: spotify.isStandalonePlayback ? isSpotifyPlaying : Boolean(audio.isPlaying),
-        positionMs: spotify.isStandalonePlayback ? currentSpotifyPosition : 0,
-        durationMs: spotify.isStandalonePlayback
+        isPlaying: (spotify.isStandalonePlayback || spotify.isExternalPlayback)
+          ? isSpotifyPlaying
+          : Boolean(audio.isPlaying),
+        positionMs: (spotify.isStandalonePlayback || spotify.isExternalPlayback)
+          ? currentSpotifyPosition
+          : 0,
+        durationMs: (spotify.isStandalonePlayback || spotify.isExternalPlayback)
           ? currentSpotifyDuration
           : Math.max(0, Number(currentDisplayedTrack?.durationMs) || 0),
         loading: false
@@ -445,7 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function pollPlaybackState(pollGeneration) {
     if (pollGeneration !== playbackPollGeneration) return;
-    if (!spotify.isAuthenticated || !spotify.isStandalonePlayback) {
+    if (!spotify.isAuthenticated || (!spotify.isStandalonePlayback && !spotify.isExternalPlayback)) {
       isSpotifyPlaying = false;
       ui.updatePlayPauseButtonUI(false);
       schedulePlaybackPoll(5000);
@@ -561,7 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (timelineThumb) timelineThumb.style.left = '0%';
       document.getElementById('timeline-slider')?.setAttribute('aria-valuenow', '0');
     }
-    lyricsController.updatePosition(posMs, spotify.isStandalonePlayback);
+    lyricsController.updatePosition(posMs, spotify.canControlPlayback);
     syncSidePlayerSnapshot();
   }
 
@@ -679,7 +689,7 @@ document.addEventListener('DOMContentLoaded', () => {
     shuffle: document.getElementById('player-shuffle-btn'),
     similar: document.getElementById('player-similar-btn'),
     getTrack: () => currentDisplayedTrack,
-    canControl: () => spotify.isAuthenticated && spotify.isStandalonePlayback,
+    canControl: () => spotify.isAuthenticated && spotify.canControlPlayback,
     onPlayback: handlePlaybackCommand,
     onError: message => window.showCozyStatus?.(message)
   });
@@ -909,7 +919,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const labels = {
       standalone: capability.tier === 'premium' ? 'PREMIUM • STANDALONE' : 'STANDALONE',
-      external: capability.tier === 'free' ? 'FREE • SPOTIFY APP' : 'SPOTIFY APP',
+      external: capability.tier === 'free'
+        ? 'FREE • SPOTIFY APP'
+        : capability.canControlExternally ? 'PREMIUM • SPOTIFY APP' : 'SPOTIFY APP',
       authorizing: 'AUTHORIZE',
       starting: 'CHECKING',
       unavailable: 'UNAVAILABLE',
@@ -921,7 +933,9 @@ document.addEventListener('DOMContentLoaded', () => {
       standalone: 'Standalone playback was verified. Audio plays inside Cozy-Fi, and Spotify can stay closed.',
       external: capability.tier === 'free'
         ? 'Spotify Premium is required for in-app streaming. Track and playlist actions will open Spotify; current Developer API access may also be unavailable to Free accounts.'
-        : 'Track and playlist actions open in the Spotify app or browser. Transport and queue controls stay in Spotify.',
+        : capability.canControlExternally
+          ? 'Premium playback is active in Spotify. Cozy-Fi can play, pause, seek, change volume, and manage the queue on the selected Spotify device.'
+          : 'Open Spotify and select an unrestricted active device to control Premium playback from Cozy-Fi.',
       authorizing: 'Complete the one-time local-player authorization. Spotify can stay closed after it succeeds.',
       starting: 'Auto is checking whether this account can register Cozy-Fi as a standalone Spotify Connect player.',
       unavailable: `${capability.reason || 'Standalone playback is unavailable.'} You can retry or choose Spotify app / browser mode.`,
@@ -934,13 +948,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const external = mode === 'external';
+    const externalControl = external && Boolean(capability.canControlExternally);
     const queueButton = document.getElementById('player-queue-btn');
     if (queueButton) {
       queueButton.disabled = false;
-      queueButton.title = external ? 'Queue controls are available in Spotify' : 'Queue';
+      queueButton.title = external && !externalControl ? 'Queue is view-only until Spotify playback is available' : 'Queue';
     }
-    document.getElementById('daily-brew-play-btn').textContent = external ? 'SPOTIFY' : 'LISTEN';
-    document.getElementById('liked-play-all-btn').textContent = external ? 'SPOTIFY' : 'PLAY';
+    document.getElementById('daily-brew-play-btn').textContent = external && !externalControl ? 'SPOTIFY' : 'LISTEN';
+    document.getElementById('liked-play-all-btn').textContent = external && !externalControl ? 'SPOTIFY' : 'PLAY';
   }
 
   playbackModeSelect?.addEventListener('change', async () => {
@@ -949,7 +964,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const capability = await spotify.setPlaybackPreference(playbackModeSelect.value);
       updatePlaybackCapabilityUI(capability);
       showStatusBanner(capability.mode === 'external'
-        ? 'Spotify App mode selected. Music links will open in Spotify.'
+        ? capability.canControlExternally
+          ? 'Spotify App mode selected. Cozy-Fi can control the active Premium Spotify device.'
+          : 'Spotify App mode selected. Open Spotify and select an active device to control playback from Cozy-Fi.'
         : 'Playback mode updated. Cozy-Fi is checking standalone playback.');
     } catch (error) {
       showErrorBanner(error?.message || 'Could not change playback mode.');
@@ -1041,7 +1058,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function connectionStatusForCapability(capability = {}) {
     if (capability.mode === 'standalone') return 'Connected. Audio plays directly inside Cozy-Fi; Spotify can stay closed.';
-    if (capability.mode === 'external') return 'Connected in Spotify App mode. Selected music opens in Spotify.';
+    if (capability.mode === 'external') {
+      if (capability.tier === 'free') return 'Connected in Spotify App mode. Premium is required for in-app playback.';
+      if (capability.canControlExternally) return 'Connected in Spotify App mode. Cozy-Fi controls the active Premium Spotify device.';
+      return 'Connected in Spotify App mode. Open Spotify and select an active device for Cozy-Fi controls.';
+    }
     if (capability.mode === 'authorizing') return playbackAuthorizationMessage;
     if (capability.mode === 'unavailable') return capability.reason || 'Connected, but standalone playback is unavailable.';
     return 'Spotify connected. Cozy-Fi is checking standalone playback capability.';

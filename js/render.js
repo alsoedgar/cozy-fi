@@ -286,10 +286,9 @@ class RenderEngine {
       const row = document.createElement('div');
       row.className = 'liked-track-row';
       const durationStr = track.duration_ms ? this.formatMs(track.duration_ms) : '0:00';
-      const playLabel = this.spotify.isExternalPlayback ? 'OPEN' : 'PLAY';
-      const queueMarkup = this.spotify.isExternalPlayback
-        ? ''
-        : '<button class="add-queue-row-btn">+ QUEUE</button>';
+      const canControl = this.spotify.canControlPlayback ?? !this.spotify.isExternalPlayback;
+      const playLabel = canControl ? 'PLAY' : 'OPEN';
+      const queueMarkup = canControl ? '<button class="add-queue-row-btn">+ QUEUE</button>' : '';
       row.innerHTML = `
         <div class="liked-track-name">${this.escapeHtml(track.name || 'Unknown Track')}</div>
         <div class="track-row-actions">
@@ -302,7 +301,7 @@ class RenderEngine {
 
       const queueBtn = row.querySelector('.add-queue-row-btn');
       const playBtn = row.querySelector('.play-row-btn');
-      playBtn.setAttribute('aria-label', `${this.spotify.isExternalPlayback ? 'Open' : 'Play'} ${trackData.title || 'track'}`);
+      playBtn.setAttribute('aria-label', `${canControl ? 'Play' : 'Open'} ${trackData.title || 'track'}`);
       queueBtn?.setAttribute('aria-label', `Add ${trackData.title || 'track'} to queue`);
       queueBtn?.addEventListener('click', async event => {
         event.stopPropagation();

@@ -130,9 +130,10 @@
       const scrollTop = this.panel.scrollTop;
       const queue = this.state.queue || [];
       this.panel.querySelector('[data-count]').textContent = `· ${queue.length}`;
-      this.panel.querySelector('[data-context]').textContent = this.state.external
-        ? 'Playback controls are in Spotify in this mode.'
-        : this.state.managed ? `${this.state.context?.name || 'Your session'}${this.state.shuffle ? ' · Shuffle on' : ''}`
+      this.panel.querySelector('[data-context]').textContent = this.state.external && !this.state.managed
+        ? 'Queue is view-only until Cozy-Fi can control an active Premium device.'
+        : this.state.managed
+          ? `${this.state.context?.name || (this.state.external ? 'Spotify session' : 'Your session')}${this.state.shuffle ? ' · Shuffle on' : ''}`
           : 'Choose a song or playlist in Cozy-Fi to start an editable queue.';
       const now = this.panel.querySelector('[data-now]');
       now.replaceChildren();

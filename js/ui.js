@@ -280,8 +280,9 @@ class UIManager {
 
   setPlaybackCapability(capability) {
     const mode = capability?.mode || 'disconnected';
-    const ready = Boolean(capability?.canPlayLocally);
+    const ready = Boolean(capability?.canPlayLocally || capability?.canControlExternally);
     const external = mode === 'external';
+    const externalControl = external && Boolean(capability?.canControlExternally);
     [this.playBtn, this.prevBtn, this.nextBtn].forEach(button => {
       button.disabled = !ready;
     });
@@ -295,7 +296,11 @@ class UIManager {
     } else {
       this.playBtn.classList.remove('filled');
       this.playBtn.textContent = external ? 'SPOTIFY' : mode === 'starting' || mode === 'authorizing' ? 'WAIT' : 'PLAY';
-      this.playBtn.title = external ? 'Playback controls are in Spotify' : 'Local player unavailable';
+      this.playBtn.title = external ? 'Open playback in Spotify' : 'Local player unavailable';
+      this.playBtn.setAttribute('aria-label', this.playBtn.title);
+    }
+    if (externalControl) {
+      this.playBtn.title = 'Control Spotify playback from Cozy-Fi';
       this.playBtn.setAttribute('aria-label', this.playBtn.title);
     }
   }

@@ -675,7 +675,9 @@
           row.type = 'button';
           row.disabled = !this.options.canSeek?.();
           row.setAttribute('aria-label', `Jump to ${timestamp}: ${line.text || 'music'}`);
-          row.title = row.disabled ? 'Seeking is available during standalone playback' : `Jump to ${timestamp}`;
+          row.title = row.disabled
+            ? 'Seeking is available when Cozy-Fi controls Premium playback'
+            : `Jump to ${timestamp}`;
           row.addEventListener('click', async () => {
             if (!this.options.canSeek?.()) return;
             this.autoFollow = true;
@@ -727,7 +729,7 @@
         line.disabled = !canSeek;
         line.title = canSeek
           ? `Jump to ${formatLyricTime(line.dataset.timeMs)}`
-          : 'Seeking is available during standalone playback';
+          : 'Seeking is available when Cozy-Fi controls Premium playback';
       });
       if (!canSync) {
         this.lineElements.forEach(line => line.classList.remove('is-active', 'is-past'));
