@@ -103,6 +103,7 @@ test('shuffle keeps current song, retains duplicates, and restores remaining lis
   const f = fixture();
   await f.queue.start(['a', 'b', 'b', 'c', 'd'].map(id => song(id)));
   const before = f.queue.snapshot();
+  const writes = f.calls.filter(call => call.method === 'PUT').length;
   await f.queue.edit('shuffle', true, before.revision);
   const shuffled = f.queue.snapshot();
   assert.equal(shuffled.currentlyPlaying.queueId, before.currentlyPlaying.queueId);
@@ -110,22 +111,22 @@ test('shuffle keeps current song, retains duplicates, and restores remaining lis
   assert.notDeepEqual(shuffled.queue, before.queue);
   await f.queue.edit('shuffle', false);
   assert.deepEqual(f.queue.snapshot().queue.map(track => track.queueId), before.queue.map(track => track.queueId));
+  assert.equal(f.calls.filter(call => call.method === 'PUT').length, writes);
 });
 
-test('add, reorder and remove preserve paused position and playlist continuation', async () => {
+test('add, reorder and remove do not issue playback commands or interrupt the current song', async () => {
   const f = fixture();
   await f.queue.start(['a', 'b', 'b', 'c'].map(id => song(id)));
   f.state({ item: song('a'), progress_ms: 45000, is_playing: false });
+  const commandsBefore = f.calls.filter(call => call.method === 'PUT').length;
   await f.queue.edit('add', song('extra'));
   assert.deepEqual(f.queue.snapshot().queue.map(track => track.id), ['extra', 'b', 'b', 'c']);
-  const lastPlay = f.calls.findLast(call => call.body?.uris);
-  assert.equal(lastPlay.body.position_ms, 45000);
-  assert.ok(f.calls.at(-1).endpoint.includes('/pause?'));
   const queue = f.queue.snapshot().queue;
   await f.queue.edit('remove', queue[1].queueId);
   assert.deepEqual(f.queue.snapshot().queue.map(track => track.queueId), [queue[0].queueId, queue[2].queueId, queue[3].queueId]);
   await f.queue.edit('move', { id: queue[3].queueId, beforeId: queue[0].queueId });
   assert.deepEqual(f.queue.snapshot().queue.map(track => track.id), ['c', 'extra', 'b']);
+  assert.equal(f.calls.filter(call => call.method === 'PUT').length, commandsBefore);
   await f.queue.edit('play', queue[0].queueId);
   assert.equal(f.queue.snapshot().currentlyPlaying.id, 'extra');
   assert.deepEqual(f.queue.snapshot().queue.map(track => track.id), ['b']);
@@ -194,17 +195,56 @@ test('long queues roll forward without dropping tracks beyond the API window', a
   assert.equal(f.queue.snapshot().currentlyPlaying.id, 't93', 'an immediate poll must not resurrect the previous playback window');
 });
 
-test('stale edits and failed writes leave the queue intact', async () => {
+test('stale edits leave the queue intact and deferred edits do not perform a write', async () => {
   const f = fixture();
   await f.queue.start([song('a'), song('b'), song('c')]);
   const before = f.queue.snapshot();
   await assert.rejects(f.queue.edit('remove', before.queue[0].queueId, before.revision - 1), /queue changed/);
+  const writes = f.calls.filter(call => call.method === 'PUT').length;
   f.fail(endpoint => endpoint.includes('/play?'));
-  await assert.rejects(f.queue.edit('remove', before.queue[0].queueId), /Network failed/);
-  assert.deepEqual(f.queue.snapshot(), before);
-  f.fail(null);
   await f.queue.edit('remove', before.queue[0].queueId);
   assert.equal(f.queue.snapshot().queue[0].id, 'c');
+  assert.equal(f.calls.filter(call => call.method === 'PUT').length, writes);
+  await assert.rejects(f.queue.edit('play', f.queue.snapshot().queue[0].queueId), /Network failed/);
+});
+
+test('a deferred queue edit takes effect at the next song boundary', async () => {
+  const f = fixture();
+  await f.queue.start([song('a'), song('b'), song('c')]);
+  f.state({ item: song('a'), progress_ms: 90000, is_playing: true });
+  await f.queue.edit('add', song('extra'));
+  const writes = f.calls.filter(call => call.method === 'PUT').length;
+  f.state({ item: song('b'), progress_ms: 500, is_playing: true });
+  const state = await f.queue.observe();
+  assert.equal(f.queue.snapshot().currentlyPlaying.id, 'extra');
+  assert.equal(state.item.id, 'extra');
+  assert.ok(f.calls.filter(call => call.method === 'PUT').length > writes);
+});
+
+test('a natural transition matching the edited queue stays gapless', async () => {
+  const f = fixture();
+  await f.queue.start([song('a'), song('b'), song('c')]);
+  f.state({ item: song('a'), progress_ms: 90000, is_playing: true });
+  await f.queue.edit('remove', f.queue.snapshot().queue.at(-1).queueId);
+  const writes = f.calls.filter(call => call.method === 'PUT').length;
+  f.state({ item: song('b'), progress_ms: 500, is_playing: true });
+  await f.queue.observe();
+  f.state({ item: song('b'), progress_ms: 3000, is_playing: true });
+  await f.queue.observe();
+  assert.equal(f.queue.snapshot().currentlyPlaying.id, 'b');
+  assert.equal(f.calls.filter(call => call.method === 'PUT').length, writes);
+});
+
+test('manual next immediately follows the edited queue order', async () => {
+  const f = fixture();
+  await f.queue.start([song('a'), song('b'), song('c'), song('d')]);
+  f.state({ item: song('a'), progress_ms: 45000, is_playing: true });
+  const queue = f.queue.snapshot().queue;
+  await f.queue.edit('move', { id: queue[2].queueId, beforeId: queue[0].queueId });
+  assert.equal(f.queue.snapshot().queue[0].id, 'd');
+  await f.queue.edit('next');
+  assert.equal(f.queue.snapshot().currentlyPlaying.id, 'd');
+  assert.deepEqual(f.queue.snapshot().queue.map(track => track.id), ['b', 'c']);
 });
 
 test('rapid next commands are serialized despite a stale Connect response', async () => {

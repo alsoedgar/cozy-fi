@@ -43,6 +43,7 @@ class PlaybackQueue {
     this.lastState = null;
     this.acknowledgedState = null;
     this.commandAt = 0;
+    this.deferredEdit = false;
     this.publish(this.snapshot());
   }
 
@@ -120,6 +121,7 @@ class PlaybackQueue {
     this.commandAt = 0;
     this.lastState = null;
     this.acknowledgedState = null;
+    this.deferredEdit = false;
     this.changed();
     return true;
   }
@@ -169,7 +171,7 @@ class PlaybackQueue {
       } : null;
       const windowIds = await this.write(entries, index, 0, false, nativeBody, true);
       if (generation !== this.generation) throw new Error('The playback session changed.');
-      Object.assign(this, { entries, index, context, windowIds, commandAt: Date.now(), lastState: null });
+      Object.assign(this, { entries, index, context, windowIds, commandAt: Date.now(), lastState: null, deferredEdit: false });
       this.acknowledgedState = { item: entries[index], is_playing: true, progress_ms: 0, device: { id: this.device() } };
       return this.changed();
     });
@@ -229,15 +231,57 @@ class PlaybackQueue {
     return changed;
   }
 
+  async applyDeferredEditAtBoundary(state, generation) {
+    if (!this.deferredEdit || !state?.item || this.index < 0) return null;
+    const current = this.entries[this.index];
+    const sameUri = state.item.uri === current?.uri;
+    const looped = sameUri && this.entries[this.index + 1]?.uri === current.uri &&
+      this.lastState?.progress_ms > 3000 && state.progress_ms < this.lastState.progress_ms - 2000 &&
+      this.lastState.progress_ms > (current.duration_ms || state.item.duration_ms) - 12000;
+    if (sameUri && !looped) return null;
+
+    const nextIndex = this.index + 1;
+    const expected = this.entries[nextIndex];
+    if (!expected) {
+      await this.request(this.endpoint('pause'), 'PUT');
+      if (generation !== this.generation) throw new Error('The playback session changed.');
+      this.deferredEdit = false;
+      this.acknowledgedState = { ...state, is_playing: false };
+      this.commandAt = Date.now();
+      return { handled: true, state: this.acknowledgedState };
+    }
+
+    if (state.item.uri === expected.uri) {
+      this.index = nextIndex;
+      this.lastState = state;
+      this.changed();
+      return { handled: true, state };
+    }
+
+    const windowIds = await this.write(this.entries, nextIndex, 0, false);
+    if (generation !== this.generation) throw new Error('The playback session changed.');
+    Object.assign(this, {
+      index: nextIndex, windowIds, commandAt: Date.now(), lastState: null, deferredEdit: false
+    });
+    this.acknowledgedState = { ...state, item: expected, progress_ms: 0, is_playing: true };
+    this.changed();
+    return { handled: true, state: this.acknowledgedState };
+  }
+
   observe() {
     return this.run(async generation => {
       const state = await this.readState();
       if (generation !== this.generation) return null;
+      const deferred = await this.applyDeferredEditAtBoundary(state, generation);
+      if (deferred?.handled) {
+        const currentState = deferred.state;
+        return { ...currentState, context: this.context ? { uri: this.context.uri } : currentState.context, shuffle_state: this.shuffle };
+      }
       await this.reconcile(state);
       if (this.index >= 0 && state?.item?.uri === this.entries[this.index]?.uri) {
         const at = this.windowIds.indexOf(this.entries[this.index].queueId);
         const more = this.windowIds.at(-1) !== this.entries.at(-1)?.queueId;
-        if (more && at >= this.windowIds.length - 8 && state.is_playing) {
+        if (!this.deferredEdit && more && at >= this.windowIds.length - 8 && state.is_playing) {
           const windowIds = await this.write(this.entries, this.index, state.progress_ms);
           if (generation !== this.generation) return null;
           this.windowIds = windowIds;
@@ -307,12 +351,18 @@ class PlaybackQueue {
         paused = false;
       } else throw new Error('Unknown queue action.');
       if (index < 0) {
-        Object.assign(this, { entries, shuffle });
+        Object.assign(this, { entries, shuffle, deferredEdit: false });
+        return this.changed();
+      }
+      if (['add', 'remove', 'move', 'shuffle'].includes(action)) {
+        // Spotify has no remove/reorder queue endpoint. Keep the current stream
+        // untouched and apply the edited order only when this song finishes.
+        Object.assign(this, { entries, shuffle, deferredEdit: true });
         return this.changed();
       }
       const windowIds = await this.write(entries, index, positionMs, paused);
       if (generation !== this.generation) throw new Error('The playback session changed.');
-      Object.assign(this, { entries, index, shuffle, windowIds, commandAt: Date.now(), lastState: null });
+      Object.assign(this, { entries, index, shuffle, windowIds, commandAt: Date.now(), lastState: null, deferredEdit: false });
       this.acknowledgedState = { ...state, item: entries[index], progress_ms: positionMs, is_playing: !paused };
       return this.changed();
     });
